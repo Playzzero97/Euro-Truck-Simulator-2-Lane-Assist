@@ -11,7 +11,7 @@ class Plugin(ETS2LAPlugin):
 
     description = PluginDescription(
         name="Sway Detection",
-        version="1.0",
+        version="1.0.0",
         description="You should enable this",
         modules=["TruckSimAPI"],
         listen=["*.py"],
