@@ -1,5 +1,6 @@
 # Framework
 from Plugins.NGHUD.classes import ElementRunner
+from ETS2LA.Utils.translator import _
 from Plugins.AR.classes import *
 from Plugins.NGHUD.ui import UI
 from ETS2LA.Events import *
@@ -15,9 +16,9 @@ def in_out(t, minimum, maximum):
 
 class Plugin(ETS2LAPlugin):
     description = PluginDescription(
-        name="NGHUD",
+        name=_("NGHUD"),
         version="1.0",
-        description="Next-Gen HUD (basically I'm remaking HUD and needed a name for it)",
+        description=_("Next-Gen HUD (basically I'm remaking HUD and needed a name for it)"),
         modules=["TruckSimAPI", "Semaphores", "Traffic"],
         tags=["Base"],
         listen=["*.py"],
@@ -37,15 +38,14 @@ class Plugin(ETS2LAPlugin):
     
     renderers = []
     widgets = []
-    
     default_widgets = [
-        "Speed",
-        "Media",
-        "RPM & Gear"
+        _("Speed"),
+        _("Media"),
+        _("RPM & Gear")
     ]
     widget_sizes = {
-        "Assist Information": {"width": 120},
-        "Media": {"width": 160}
+        _("Assist Information"): {"width": 120},
+        _("Media"): {"width": 160}
     }
 
     def discover_elements(self):
@@ -208,26 +208,38 @@ class Plugin(ETS2LAPlugin):
         enabled = self.settings.get("widgets", self.default_widgets)
         for widget in enabled:
             if widget not in [runner.element.name for runner in self.widgets]:
-                self.set_widget(widget)
+                try:
+                    self.set_widget(widget)
+                except:
+                    logging.debug(f"NGHUD: Widget '{widget}' not found in runners.")
         
         for widget in self.widgets:
             if widget.element.name not in enabled:
-                self.remove_widget(widget.element.name)
-            
+                try:
+                    self.remove_widget(widget.element.name)
+                except:
+                    logging.debug(f"NGHUD: Widget '{widget.element.name}' not found in runners.")
+
     def ensure_renderers_selected(self):
         renderers = self.settings.renderers
         if renderers is None:
-            self.settings.renderers = ["ACC Information", "Traffic Lights", "Steering Line"]
-            renderers = ["ACC Information", "Traffic Lights", "Steering Line"]
-            
+            self.settings.renderers = [_("ACC Information"), _("Traffic Lights"), _("Steering Line")]
+            renderers = [_("ACC Information"), _("Traffic Lights"), _("Steering Line")]
+
         enabled = [runner.name for runner in self.renderers]
         for renderer in enabled:
             if renderer not in renderers:
-                self.disable_renderer(renderer)
-                
+                try:
+                    self.disable_renderer(renderer)
+                except:
+                    logging.debug(f"NGHUD: Renderer '{renderer}' not found in runners.")
+
         for renderer in renderers:
             if renderer not in enabled:
-                self.enable_renderer(renderer)
+                try:
+                    self.enable_renderer(renderer)
+                except:
+                    logging.debug(f"NGHUD: Renderer '{renderer}' not found in runners.")
         
     def is_day(self) -> bool:
         if not self.data:
@@ -320,7 +332,7 @@ class Plugin(ETS2LAPlugin):
                 ),
                 Text(
                     Point(10 + offset_x, height-22, anchor=self.anchor),
-                    text=f"Loading...",
+                    text=_("Loading..."),
                     color=Color(255, 255, 255, 200 * (1 - t)),
                     size=14
                 )
@@ -365,7 +377,7 @@ class Plugin(ETS2LAPlugin):
             ),
             Text(
                 Point(10 + offset_x, height-22, anchor=self.anchor),
-                text=f"Loading...",
+                text=_("Loading..."),
                 color=Color(255, 255, 255, 200),
                 size=14
             )
