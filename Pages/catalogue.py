@@ -1,27 +1,34 @@
 from ETS2LA.UI import *
+from ETS2LA.Handlers import plugins
+from ETS2LA.Utils.translator import _
 import webbrowser
 import threading
 import requests
 import random
+import shutil
 import time
 import yaml
+import git
+import os
 
 class CataloguePlugin():
     name: str
     overview: str
     description: str
+    repository: str
     
     image_url: str
     version: str
     author: str
     
-    def __init__(self, name: str, overview: str, description: str, image_url: str, version: str, author: str):
+    def __init__(self, name: str, overview: str, description: str, image_url: str, version: str, author: str, repository: str = ""):
         self.name = name
         self.overview = overview
         self.description = description
         self.image_url = image_url
         self.version = version
         self.author = author
+        self.repository = repository
 
 class Page(ETS2LAPage):
     url = "/catalogue"
@@ -36,6 +43,16 @@ class Page(ETS2LAPage):
     selected_plugin: CataloguePlugin = None
     
     search_term: str = ""
+
+    want_to_install: bool = False
+    installing: bool = False
+    installing_state: str = ""
+    installing_error: str = ""
+    
+    want_to_uninstall: bool = False
+    uninstalling: bool = False
+    uninstalling_state: str = ""
+    uninstalling_error: str = ""    
     
     def get_catalogue_data(self, catalogue: str) -> str:
         url = catalogue
@@ -62,12 +79,13 @@ class Page(ETS2LAPage):
         if response.status_code == 200:
             data = yaml.safe_load(response.text)
             return CataloguePlugin(
-                name=data.get("name", "Unknown"),
-                overview=data.get("overview", "No overview provided."),
-                description=data.get("description", "No description provided."),
+                name=data.get("name", _("Unknown")),
+                overview=data.get("overview", _("No overview provided.")),
+                description=data.get("description", _("No description provided.")),
                 image_url=data.get("image_url", ""),
                 version=data.get("version", "0.0.0"),
-                author=data.get("author", "Unknown")
+                author=data.get("author", _("Unknown")),
+                repository=repository
             )
         
         return None
@@ -85,13 +103,134 @@ class Page(ETS2LAPage):
         self.crawl_catalogue()
         self.loading = False
 
+    def refresh_data(self):
+        self.loading = True
+        self.plugins = []
+        threading.Thread(target=self.update_data, daemon=True).start()
+
     def open_event(self):
         if self.plugins:
             return
         
-        self.loading = True
-        threading.Thread(target=self.update_data).start()
+        if not self.loading and not self.catalogue:
+            self.refresh_data()
+        
+    def trigger_install_page(self):
+        self.want_to_install = True
+        
+    def trigger_uninstall_page(self):
+        self.want_to_uninstall = True
+        
+    def trigger_install(self, plugin: str):
+        threading.Thread(target=self.install_plugin, args=(plugin,), daemon=True).start()
+        
+    def trigger_uninstall(self, plugin: str):
+        threading.Thread(target=self.uninstall_plugin, args=(plugin,), daemon=True).start()
+        
+    def install_plugin(self, plugin: str):
+        self.installing = True
+        self.installing_state = _("Installing")
+        self.installing_error = ""
+        self.want_to_install = False
+        
+        target = None
+        for p in self.plugins:
+            if p.name == plugin:
+                target = p
+                break
+            
+        if not target:
+            SendPopup(_("Plugin not found in the catalogue."))
+            return
+        
+        try:
+            self.installing_state = _("Cloning repository")
+            repo = git.Repo.clone_from(target.repository, f"CataloguePlugins/{target.name}")
+            if os.path.exists(f"CataloguePlugins/{target.name}/requirements.txt"):
+                self.installing_state = _("Installing requirements")
+                os.system(f"pip install -r CataloguePlugins/{target.name}/requirements.txt")
+
+            self.installing_state = _("Starting plugin background process")
+            if not plugins.create_process(
+                folder=f"CataloguePlugins\\{target.name}"
+            ):
+                raise Exception(_("Failed to start plugin background process, but the plugin files were installed."))
+
+            self.installing_state = _("Success")
+            self.installing = False
+            self.unselect_plugin()
+            SendPopup(_("Plugin '{name}' installed successfully.").format(name=target.name))
+        except Exception as e:
+            self.installing_state = _("Failed")
+            self.installing_error = str(e)
+            SendPopup(_("Failed to install plugin '{name}': {error}").format(name=target.name, error=str(e)))
+
+    def uninstall_plugin(self, plugin: str):
+        self.uninstalling = True
+        self.uninstalling_state = _("Uninstalling")
+        self.uninstalling_error = ""
+        self.want_to_uninstall = False
+        
+        target = None
+        for p in self.plugins:
+            if p.name == plugin:
+                target = p
+                break
     
+        if not target:
+            SendPopup(_("Plugin not found in the catalogue."))
+            return
+    
+        try:
+            self.uninstalling_state = _("Closing plugin processes")
+            if plugins.match_plugin_by_folder(f"CataloguePlugins/{target.name}"):
+                if not plugins.stop_plugin(folder=f"CataloguePlugins/{target.name}", stop_process=True):
+                    raise Exception(_("Failed to stop plugin processes."))
+
+            self.uninstalling_state = _("Unregistering git repository")
+            # Close any git handles
+            if os.path.exists(f"CataloguePlugins/{target.name}/.git"):
+                repo = git.Repo(f"CataloguePlugins/{target.name}")
+                repo.git.clear_cache()
+                del repo  # and delete the repo object from python
+            
+            # Wait a bit for user experience
+            time.sleep(1)
+            self.uninstalling_state = _("Removing plugin files")
+
+            max_retries = 3
+            retry_count = 0
+            success = False
+            while not success and retry_count < max_retries:
+                try:
+                    # Make read only files writable
+                    for root, dirs, files in os.walk(f"CataloguePlugins/{target.name}", topdown=False):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            try:
+                                os.chmod(file_path, 0o666)  # Magic value = writable by all
+                            except:
+                                pass
+                    
+                    shutil.rmtree(f"CataloguePlugins/{target.name}")
+                    success = True
+                except Exception as e:
+                    retry_count += 1
+                    self.uninstalling_state = _("Retrying removal ({cur}/{max})").format(cur=retry_count, max=max_retries)
+                    time.sleep(1)
+            
+            if not success:
+                raise Exception(_("Failed to remove plugin files after {max} attempts").format(max=max_retries))
+
+            self.uninstalling_state = _("Success")
+            self.uninstalling = False
+            self.unselect_plugin()
+            SendPopup(_("Plugin '{name}' uninstalled successfully.").format(name=target.name))
+        except Exception as e:
+            self.uninstalling_state = _("Failed")
+            self.uninstalling_error = str(e)
+            SendPopup(_("Failed to uninstall plugin '{name}': {error}").format(name=target.name, error=str(e)))
+
     def select_plugin(self, plugin: str):
         for p in self.plugins:
             if p.name == plugin:
@@ -99,6 +238,17 @@ class Page(ETS2LAPage):
                 break
             
     def unselect_plugin(self):
+        self.want_to_install = False
+        self.installing = False
+        self.installing_state = ""
+        self.installing_error = ""
+        
+        self.want_to_uninstall = False
+        self.uninstalling = False
+        self.uninstalling_state = ""
+        self.uninstalling_error = ""
+        
+        self.search_term = ""
         self.selected_plugin = None
         
     def open_source_code(self, plugin: str):
@@ -109,19 +259,20 @@ class Page(ETS2LAPage):
                 if repository:
                     webbrowser.open(repository)
                     return
-                    
-        SendPopup("Couldn't find source code for this plugin.")
-    
+
+        SendPopup(_("Couldn't find source code for this plugin."))
+
     def loading_screen(self) -> bool:
         if self.loading:
             with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
                 with Spinner():
                     Icon("loader")
-                
-                Text("Refreshing...", styles.Description())
+
+                # TRANSLATORS: This text is shown when the plugin catalogue is refreshing the database.
+                Text(_("Refreshing..."), styles.Description())
                 if self.plugins:
-                    Text(f"Loaded {len(self.plugins)} plugins", styles.Classname("text-xs text-muted-foreground absolute bottom-2"))
-                
+                    Text(_("Found {count} plugins").format(count=len(self.plugins)), styles.Classname("text-xs text-muted-foreground absolute bottom-2"))
+
                 return True
         return False
     
@@ -154,15 +305,26 @@ class Page(ETS2LAPage):
         if not self.selected_plugin:
             return False
         
+        installed = os.path.exists(f"CataloguePlugins/{self.selected_plugin.name}")
+        
         with Container(styles.Classname("w-full h-full p-4 gap-4") + styles.FlexVertical()):
             with Container(styles.FlexHorizontal() + styles.Gap("10px") + styles.Classname("items-center")):
                 with Button(action=self.unselect_plugin):
                     Icon("arrow-left")
-                    Text("Back", styles.Classname("font-semibold"))
+                    Text(_("Back"), styles.Classname("font-semibold"))
                 with Button(name=self.selected_plugin.name, action=self.open_source_code):
                     Icon("github")
-                    Text("Source Code", styles.Classname("font-semibold"))
-                
+                    Text(_("Source Code"), styles.Classname("font-semibold"))
+
+                if installed:
+                    with Button(action=self.trigger_uninstall_page):
+                        Icon("trash-2")
+                        Text(_("Uninstall"), styles.Classname("font-semibold"))
+                else:
+                    with Button(action=self.trigger_install_page, type="primary"):
+                        Icon("download")
+                        Text(_("Install"), styles.Classname("font-semibold"))
+
             with Container(styles.FlexHorizontal() + styles.Classname("w-full justify-between border rounded-md p-4 bg-input/10")):
                 with Container(styles.FlexVertical() + styles.Gap("5px") + styles.Classname("w-full")):
                     with Container(styles.FlexHorizontal() + styles.Classname("justify-between w-full")):
@@ -175,15 +337,67 @@ class Page(ETS2LAPage):
                             with Container(styles.Classname("bg-input/30 rounded-md border px-2 py-1 h-min")):
                                 Text(self.selected_plugin.author, styles.Classname("text-xs"))
                                 
-                    Text(self.selected_plugin.description, styles.Description())
+                    Markdown(self.selected_plugin.description, styles.Description() + styles.MaxWidth("700px"))
 
                 if self.selected_plugin.image_url:
                     Image(url=self.selected_plugin.image_url, style=styles.Style(
                         width="100px",
                         height="100px",
                     ) + styles.Classname("rounded-md border"))
-            
-            
+                    
+        return True
+    
+    def render_install_page(self):
+        if not self.want_to_install:
+            return False
+        
+        with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
+            Text(_("Are you sure you want to install this plugin?") + "\n" + self.selected_plugin.name, styles.Classname("text-center"))
+            Text(_("ETS2LA is not responsible for any issues caused by 3rd party plugins."), styles.Classname("text-xs text-muted-foreground"))
+            with Container(styles.FlexHorizontal() + styles.Gap("10px") + styles.Classname("pt-4")):
+                with Button(action=self.unselect_plugin, type="ghost"):
+                    Icon("arrow-left")
+                    Text(_("Cancel"), styles.Classname("font-semibold"))
+                with Button(action=self.trigger_install, name=self.selected_plugin.name, type="primary"):
+                    Icon("download")
+                    Text(_("Install"), styles.Classname("font-semibold"))
+        
+        return True
+    
+    def render_installing_page(self):
+        with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
+            Text(_("Installing {plugin}").format(plugin=self.selected_plugin.name), styles.Classname("text-center"))
+            Text(self.installing_state, styles.Classname("text-xs text-muted-foreground"))
+            if self.installing_error:
+                Text(self.installing_error, styles.Classname("text-xs text-red-500"))
+                with Button(action=self.unselect_plugin, type="ghost"):
+                    Icon("x")
+                    Text(_("Close"), styles.Classname("font-semibold"))
+
+    def render_uninstalling_page(self):
+        with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
+            Text(_("Uninstalling {plugin}").format(plugin=self.selected_plugin.name), styles.Classname("text-center"))
+            Text(self.uninstalling_state, styles.Classname("text-xs text-muted-foreground"))
+            if self.uninstalling_error:
+                Text(self.uninstalling_error, styles.Classname("text-xs text-red-500"))
+                with Button(action=self.unselect_plugin, type="ghost"):
+                    Icon("x")
+                    Text(_("Close"), styles.Classname("font-semibold"))
+
+    def render_uninstall_page(self):
+        if not self.want_to_uninstall:
+            return False
+        
+        with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
+            Text(_("Are you sure you want to uninstall this plugin?") + "\n" + self.selected_plugin.name, styles.Classname("text-center"))
+            with Container(styles.FlexHorizontal() + styles.Gap("10px") + styles.Classname("pt-4")):
+                with Button(action=self.unselect_plugin, type="ghost"):
+                    Icon("arrow-left")
+                    Text(_("Cancel"), styles.Classname("font-semibold"))
+                with Button(action=self.trigger_uninstall, name=self.selected_plugin.name, type="primary"):
+                    Icon("trash-2")
+                    Text(_("Uninstall"), styles.Classname("font-semibold"))
+
         return True
     
     def handle_search(self, search_term: str):
@@ -192,16 +406,16 @@ class Page(ETS2LAPage):
     def header(self):
         with Container(styles.FlexHorizontal() + styles.Classname("w-full h-16 items-center justify-between px-2 pr-12")):
             with Container(styles.FlexHorizontal() + styles.Classname("gap-2 items-center")):
-                Text("Plugin Catalogue", styles.Title())
+                Text(_("Plugin Catalogue"), styles.Title())
                 
             with Container(styles.FlexHorizontal() + styles.Classname("gap-2 items-center")):
                 Input(
-                    "Search plugins...",
+                    _("Search plugins..."),
                     changed=self.handle_search
                 )
-                with Button(action=self.open_event, type="ghost"):
+                with Button(action=self.refresh_data, type="ghost"):
                     Icon("refresh-ccw")
-                    Text("Refresh", styles.Classname("text-xs"))
+                    Text(_("Refresh"), styles.Classname("text-xs"))
     
     def render(self):
         if self.loading_screen():
@@ -209,17 +423,38 @@ class Page(ETS2LAPage):
 
         if not self.plugins:
             with Container(styles.FlexVertical() + styles.Classname("w-full h-full items-center justify-center relative")):
-                Text("No plugins found in the plugin catalogue.", styles.Description())
+                Text(_("No plugins found in the plugin catalogue."), styles.Description())
+                with Button(action=self.refresh_data, type="ghost", style=styles.Classname("default mt-4")):
+                    Icon("refresh-ccw")
+                    Text(_("Refresh Catalogue"), styles.Classname("text-xs"))
                 return
     
+        if self.installing:
+            self.render_installing_page()
+            return
+        
+        if self.uninstalling:
+            self.render_uninstalling_page()
+            return
+    
+        if self.want_to_install and self.selected_plugin:
+            if self.render_install_page():
+                return
+
+        if self.want_to_uninstall and self.selected_plugin:
+            if self.render_uninstall_page():
+                return
+
         if self.render_plugin_details():
             return
         
+        self.want_to_install = False
         with Container(styles.Classname("w-full h-full p-4 gap-4") + styles.FlexVertical()):
             self.header()
             for plugin in self.plugins:
                 if self.search_term \
                    and self.search_term not in plugin.name.lower() \
-                   and self.search_term not in plugin.overview.lower():
+                   and self.search_term not in plugin.overview.lower() \
+                   and self.search_term not in plugin.author.lower():
                     continue
                 self.render_plugin_card(plugin)
