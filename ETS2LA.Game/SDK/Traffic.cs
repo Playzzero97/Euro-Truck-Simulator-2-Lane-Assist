@@ -13,6 +13,19 @@ public class TrafficTrailer
     public Vector3 position = Vector3.Zero;
     public System.Numerics.Quaternion rotation = System.Numerics.Quaternion.Identity;
     public Vector3 size = Vector3.Zero;
+
+    public List<Vector3> GetCornersOnGround()
+    {
+        List<Vector3> corners = new List<Vector3>();
+        Vector3 halfSize = size / 2;
+
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+
+        return corners;
+    }
 }
 
 public class TrafficVehicle
@@ -33,6 +46,19 @@ public class TrafficVehicle
     public bool isTrailer;
 
     public TrafficTrailer[] trailers = Array.Empty<TrafficTrailer>();
+
+    public List<Vector3> GetCornersOnGround()
+    {
+        List<Vector3> corners = new List<Vector3>();
+        Vector3 halfSize = size / 2;
+
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+
+        return corners;
+    }
 }
 
 public class TrafficData

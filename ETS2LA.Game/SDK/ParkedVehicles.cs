@@ -15,6 +15,19 @@ public class ParkedVehicle
     public Vector3 size;
     public int id;
     public bool isTrailer;
+
+    public List<Vector3> GetCornersOnGround()
+    {
+        List<Vector3> corners = new List<Vector3>();
+        Vector3 halfSize = size / 2;
+
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
+        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+
+        return corners;
+    }
 }
 
 public class ParkedVehicleData
