@@ -21,6 +21,9 @@ public class MyConsumer : Plugin
         AuthorName = "Tumppi066",
     };
 
+    private TrafficData? _trafficData;
+    private ParkedVehicleData? _parkedVehicleData;
+
     public override void Init()
     {
         base.Init();
@@ -31,10 +34,11 @@ public class MyConsumer : Plugin
         base.OnEnable();
         Events.Current.Subscribe<float>("ExampleProvider.Time", OnTimeReceived);
         Events.Current.Subscribe<GameTelemetryData>(GameTelemetry.Current.EventString, OnGameTelemetryReceived);
-        Events.Current.Subscribe<CameraData>("ETS2LASDK.Camera", OnCameraReceived);
-        Events.Current.Subscribe<TrafficData>("ETS2LASDK.Traffic", OnTrafficReceived);
-        Events.Current.Subscribe<SemaphoreData>("ETS2LASDK.Semaphores", OnSemaphoreReceived);
-        Events.Current.Subscribe<NavigationData>("ETS2LASDK.Navigation", OnNavigationReceived);
+        Events.Current.Subscribe<CameraData>(CameraProvider.Current.EventString, OnCameraReceived);
+        Events.Current.Subscribe<TrafficData>(TrafficProvider.Current.EventString, OnTrafficReceived);
+        Events.Current.Subscribe<SemaphoreData>(SemaphoreProvider.Current.EventString, OnSemaphoreReceived);
+        Events.Current.Subscribe<NavigationData>(NavigationProvider.Current.EventString, OnNavigationReceived);
+        Events.Current.Subscribe<ParkedVehicleData>(ParkedVehiclesProvider.Current.EventString, OnParkedVehicleReceived);
 
         OverlayHandler.Current.AR.RegisterRenderCallback(new ARRenderCallback
         {
@@ -55,7 +59,69 @@ public class MyConsumer : Plugin
                 ImGui.Text($"Position: ({position.X:F2}, {position.Y:F2}, {position.Z:F2})");
                 ImGui.Text($"Speed: {speed:F2} km/h");
                 ImGui.Text($"RPM: {rpm:F0} RPM");
-                AR.EndWindow(new ARCoordinate(0,0,0, ARCoordinateCenter.Truck), Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
+                AR.EndWindow(position, Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
+
+                if (_trafficData != null)
+                {
+                    foreach (var vehicle in _trafficData.vehicles)
+                    {
+                        var bottomCorners = vehicle.GetCornersOnGround();
+                        var topCorners = new List<Vector3>
+                        {
+                            bottomCorners[0] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[1] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[2] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[3] + new Vector3(0, vehicle.size.Y, 0)
+                        };
+
+                        AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
+                        AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+
+                        foreach (var trailer in vehicle.trailers)
+                        {
+                            bottomCorners = trailer.GetCornersOnGround();
+                            topCorners = new List<Vector3>
+                            {
+                                bottomCorners[0] + new Vector3(0, trailer.size.Y, 0),
+                                bottomCorners[1] + new Vector3(0, trailer.size.Y, 0),
+                                bottomCorners[2] + new Vector3(0, trailer.size.Y, 0),
+                                bottomCorners[3] + new Vector3(0, trailer.size.Y, 0)
+                            };
+
+                            AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
+                            AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
+                            AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
+                            AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
+                            AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
+                            AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+                        }
+                    }
+                }
+                if (_parkedVehicleData != null)
+                {
+                    foreach (var vehicle in _parkedVehicleData.vehicles)
+                    {
+                        var bottomCorners = vehicle.GetCornersOnGround();
+                        var topCorners = new List<Vector3>
+                        {
+                            bottomCorners[0] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[1] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[2] + new Vector3(0, vehicle.size.Y, 0),
+                            bottomCorners[3] + new Vector3(0, vehicle.size.Y, 0)
+                        };
+
+                        AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
+                        AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
+                        AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+                    }
+                }
             }
         });
     }
@@ -167,8 +233,15 @@ public class MyConsumer : Plugin
         if (!_IsRunning)
             return;
 
-        // Logger.Info($"MyConsumer received {traffic.vehicles.Length} traffic vehicles.");
-        // Logger.Info($"First vehicle position: ({traffic.vehicles[0].position.X}, {traffic.vehicles[0].position.Y}, {traffic.vehicles[0].position.Z}), has {traffic.vehicles[0].trailer_count} trailers.");
+        _trafficData = traffic;
+    }
+
+    private void OnParkedVehicleReceived(ParkedVehicleData data)
+    {
+        if (!_IsRunning)
+            return;
+
+        _parkedVehicleData = data;
     }
 
     private void OnSemaphoreReceived(SemaphoreData data)

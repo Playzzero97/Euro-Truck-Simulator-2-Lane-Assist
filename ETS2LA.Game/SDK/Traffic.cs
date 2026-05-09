@@ -5,6 +5,7 @@ using ETS2LA.Backend.Events;
 using System.Numerics;
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
+using TruckLib;
 
 namespace ETS2LA.Game.SDK;
 
@@ -23,6 +24,14 @@ public class TrafficTrailer
         corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
         corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
         corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+
+        Quaternion invQuat = Quaternion.Conjugate(rotation);
+        Vector3 euler = invQuat.ToEuler();
+        Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + (float)Math.PI, -euler.Z + (float)Math.PI, -euler.X);
+        for (int i = 0; i < corners.Count; i++)
+        {
+            corners[i] = Vector3.Transform(corners[i] - position, filteredRot) + position;
+        }
 
         return corners;
     }
@@ -56,6 +65,14 @@ public class TrafficVehicle
         corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
         corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
         corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+
+        Quaternion invQuat = Quaternion.Conjugate(rotation);
+        Vector3 euler = invQuat.ToEuler();
+        Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + (float)Math.PI, -euler.Z + (float)Math.PI, -euler.X);
+        for (int i = 0; i < corners.Count; i++)
+        {
+            corners[i] = Vector3.Transform(corners[i] - position, filteredRot) + position;
+        }
 
         return corners;
     }
