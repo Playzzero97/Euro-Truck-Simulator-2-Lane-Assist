@@ -13,14 +13,21 @@ namespace InternalVisualization.Renderers;
 public class TrafficRenderer : Renderer
 {
     private TrafficData? _trafficData;
+    private ParkedVehicleData? _parkedVehicleData;
     public TrafficRenderer()
     {
         Events.Current.Subscribe<TrafficData>(TrafficProvider.Current.EventString, OnTrafficDataReceived);
+        Events.Current.Subscribe<ParkedVehicleData>(ParkedVehiclesProvider.Current.EventString, OnParkedVehicleDataReceived);
     }
 
     private void OnTrafficDataReceived(TrafficData data)
     {
         _trafficData = data;
+    }
+
+    private void OnParkedVehicleDataReceived(ParkedVehicleData data)
+    {
+        _parkedVehicleData = data;
     }
 
     private void DrawRectangle(ImDrawListPtr drawList, Vector2 screenPos, float width, float length, float angle)
@@ -56,6 +63,38 @@ public class TrafficRenderer : Renderer
     public override void Render(ImDrawListPtr drawList, Vector2 windowPos, Vector2 windowSize, 
                                 GameTelemetryData telemetryData, MapData mapData, Road[] roads, Prefab[] prefabs, IReadOnlyList<Node> nearbyNodes)
     {
+        foreach (var parkedVehicle in _parkedVehicleData?.vehicles ?? new List<ParkedVehicle>())
+        {
+            Vector3 center = parkedVehicle.position;
+            Vector2 screenPos = Utils.WorldToScreen(center, telemetryData.truckPlacement.coordinate.ToVector3(), windowSize) + windowPos;
+
+            Quaternion rotation = parkedVehicle.rotation;
+            float angle = rotation.ToEulerDeg().Y + 90f;
+
+            float width = parkedVehicle.size.X;
+            float length = parkedVehicle.size.Z;
+
+            DrawRectangle(drawList, screenPos, width, length, angle);
+            if (ImGui.IsMouseHoveringRect(screenPos - new Vector2(length, width) * InternalVisualizationConstants.Scale, screenPos + new Vector2(length, width) * InternalVisualizationConstants.Scale))
+            {
+                ImGui.BeginTooltip();
+                ImGui.Spacing();
+                ImGui.Text($"Traffic Vehicle:");
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.8f, 1f, 1f, 1f), $"{parkedVehicle.id}");
+                ImGui.Indent();
+                ImGui.Text($"Position:");
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), $"{center.X:F1}, {center.Y:F1}, {center.Z:F1}");
+                ImGui.Text($"Rotation:");
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), $"{angle:F1}°");
+                ImGui.Unindent();
+                ImGui.Spacing();
+                ImGui.EndTooltip();
+            }
+        }
+
         foreach (var vehicle in _trafficData?.vehicles ?? Array.Empty<TrafficVehicle>())
         {
             Vector3 center = vehicle.position;

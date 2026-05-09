@@ -32,6 +32,7 @@ public class GameHandler
         var navigation = NavigationProvider.Current;
         var semaphores = SemaphoreProvider.Current;
         var traffic = TrafficProvider.Current;
+        var parkedVehicles = ParkedVehiclesProvider.Current;
 
         // Spawn the game output handler as well.
         var output = GameOutput.Current;
