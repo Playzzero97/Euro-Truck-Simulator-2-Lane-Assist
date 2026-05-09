@@ -6,6 +6,7 @@ using Hexa.NET.ImGui;
 using TruckLib;
 using Hexa.NET.OpenGL;
 using Hexa.NET.ImGui.Backends.OpenGL3;
+using Avalonia.Remote.Protocol.Designer;
 using ETS2LA.Telemetry;
 
 namespace ETS2LA.Overlay.AR;
@@ -84,13 +85,12 @@ public class ARRenderer
     }
 
     /// <summary>
-    ///  Unregister a previously registered callback. Note that the same instance
-    ///  must be provided as was used in registration.
+    ///  Unregister a previously registered callback.
     /// </summary>
-    /// <param name="callback">Callback definition / instance</param>
-    public void UnregisterRenderCallback(ARRenderCallback callback)
+    /// <param name="name">Name of the callback to remove</param>
+    public void UnregisterRenderCallback(string name)
     {
-        renderCallbacks.Remove(callback);
+        renderCallbacks.RemoveAll(callback => callback.Definition.Name == name);
     }
 
     /// <summary>
@@ -227,13 +227,150 @@ public class ARRenderer
     /// <param name="thickness">Thickness of the line in pixels.</param>
     public void Draw3DLine(ARCoordinate start, ARCoordinate end, UInt32 color, float thickness = 1.0f)
     {
-        Vector2? p1 = WorldToScreen(ARCoordinateToVector3(start), 3440, 1440);
-        Vector2? p2 = WorldToScreen(ARCoordinateToVector3(end), 3440, 1440);
+        Vector2? p1 = WorldToScreen(start, 3440, 1440);
+        Vector2? p2 = WorldToScreen(end, 3440, 1440);
+        if (!p1.HasValue || !p2.HasValue) return;
 
-        if (p1.HasValue && p2.HasValue)
+        ImGui.GetBackgroundDrawList().AddLine(
+            p1.Value, p2.Value, 
+            ConvertColor(color), thickness
+        );
+    }
+
+    /// <summary>
+    ///  Draw a 3D circle in world space.
+    /// </summary>
+    /// <param name="center">The world space center of the circle.</param>
+    /// <param name="radius">The radius of the circle.</param>
+    /// <param name="color">The color of the circle.</param>
+    /// <param name="filled">Whether the circle should be filled.</param>
+    /// <param name="thickness">The thickness of the circle outline.</param>
+    public void Draw3DCircle(Vector3 center, float radius, UInt32 color, bool filled = false, float thickness = 1)
+    {
+        Vector2? centerScreen = WorldToScreen(center, 3440, 1440);
+        if (!centerScreen.HasValue) 
+            return;
+
+        if (filled) {
+            ImGui.GetBackgroundDrawList().AddCircleFilled(
+                centerScreen.Value, radius, ConvertColor(color)
+            );
+        }
+        else {
+            ImGui.GetBackgroundDrawList().AddCircle(
+                centerScreen.Value, radius, ConvertColor(color), thickness
+            );
+        }
+    }
+
+    /// <summary>
+    ///  Draw a 3D polygon in world space.
+    /// </summary>
+    /// <param name="points">List of points to draw, automatically closed.</param>
+    /// <param name="color">The color of the polygon.</param>
+    /// <param name="filled">Whether the polygon should be filled.</param>
+    /// <param name="thickness">The thickness of the polygon outline.</param>
+    public void Draw3DPolygon(Vector3[] points, UInt32 color, bool filled = false, float thickness = 1)
+    {
+        if (points == null || points.Length < 3)
+            return;
+
+        Vector2[] screenPoints = new Vector2[points.Length];
+        for (int i = 0; i < points.Length; i++)
         {
-            ImGui.GetBackgroundDrawList().AddLine(
-                p1.Value, p2.Value, 
+            Vector2? screenPos = WorldToScreen(points[i], 3440, 1440);
+            if (!screenPos.HasValue)
+                return;
+
+            screenPoints[i] = screenPos.Value;
+        }
+
+        if (filled)
+        {
+            unsafe
+            {
+                fixed (Vector2* p = &screenPoints[0])
+                {
+                    ImGui.GetBackgroundDrawList().AddConvexPolyFilled(p, screenPoints.Length, ConvertColor(color));
+                }
+            }
+        }
+        else
+        {
+            for (int i = 0; i < screenPoints.Length; i++)
+            {
+                ImGui.GetBackgroundDrawList().AddLine(
+                    screenPoints[i], screenPoints[(i + 1) % screenPoints.Length], ConvertColor(color), thickness
+                );
+            }
+        }
+    }
+
+    /// <summary>
+    ///  Draw a 3D quad in world space.
+    /// </summary>
+    /// <param name="p1"></param>
+    /// <param name="p2"></param>
+    /// <param name="p3"></param>
+    /// <param name="p4"></param>
+    /// <param name="color">Color of the quad.</param>
+    /// <param name="filled">Whether this quad should be filled.</param>
+    /// <param name="thickness">The thickness of a non filled quad.</param>
+    public void Draw3DQuad(Vector3 p1, Vector3 p2, Vector3 p3, Vector3 p4, UInt32 color, bool filled = false, float thickness = 1)
+    {
+        Vector2? p1s = WorldToScreen(p1, 3440, 1440);
+        Vector2? p2s = WorldToScreen(p2, 3440, 1440);
+        Vector2? p3s = WorldToScreen(p3, 3440, 1440);
+        Vector2? p4s = WorldToScreen(p4, 3440, 1440);
+
+        if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue || !p4s.HasValue)
+            return;
+
+        if (filled)
+        {
+            ImGui.GetBackgroundDrawList().AddQuadFilled(
+                p1s.Value, p2s.Value, p3s.Value, p4s.Value, 
+                ConvertColor(color)
+            );
+        }
+        else
+        {            
+            ImGui.GetBackgroundDrawList().AddQuad(
+                p1s.Value, p2s.Value, p3s.Value, p4s.Value, 
+                ConvertColor(color), thickness
+            );
+        }
+    }
+
+    /// <summary>
+    ///  Draw a triangle in world space.
+    /// </summary>
+    /// <param name="p1"></param>
+    /// <param name="p2"></param>
+    /// <param name="p3"></param>
+    /// <param name="color">The color of the triangle.</param>
+    /// <param name="filled">Whether this triangle should be filled.</param>
+    /// <param name="thickness">The thickness of a non filled triangle.</param>
+    public void Draw3DTriangle(Vector3 p1, Vector3 p2, Vector3 p3, UInt32 color, bool filled = false, float thickness = 1)
+    {
+        Vector2? p1s = WorldToScreen(p1, 3440, 1440);
+        Vector2? p2s = WorldToScreen(p2, 3440, 1440);
+        Vector2? p3s = WorldToScreen(p3, 3440, 1440);
+
+        if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue)
+            return;
+
+        if (filled)
+        {
+            ImGui.GetBackgroundDrawList().AddTriangleFilled(
+                p1s.Value, p2s.Value, p3s.Value, 
+                ConvertColor(color)
+            );
+        }
+        else
+        {
+            ImGui.GetBackgroundDrawList().AddTriangle(
+                p1s.Value, p2s.Value, p3s.Value, 
                 ConvertColor(color), thickness
             );
         }

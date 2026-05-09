@@ -3,7 +3,6 @@ using ETS2LA.Shared;
 using ETS2LA.Telemetry;
 using ETS2LA.Backend.Events;
 using ETS2LA.Game.SDK;
-using ETS2LA.Game.Output;
 using ETS2LA.Overlay;
 using ETS2LA.Overlay.AR;
 
@@ -66,6 +65,7 @@ public class MyConsumer : Plugin
         base.OnDisable();
         NotificationHandler.Current.CloseNotification("ExampleConsumer.Speed");
         NotificationHandler.Current.CloseNotification("ExampleConsumer.RPM");
+        OverlayHandler.Current.AR.UnregisterRenderCallback("Example AR Renderer");
     }
 
     private float output = 0;
