@@ -20,4 +20,49 @@ namespace ETS2LA.Overlay
         /// </summary>
         public Optional<bool> NoWindow;
     }
+
+    public static class GameWindowManager
+    {
+        public struct WindowRect { public int X, Y, Width, Height; }
+
+        #if WINDOWS
+            [DllImport("user32.dll", SetLastError = true)]
+            static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+            [DllImport("user32.dll")]
+            static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+            [DllImport("user32.dll")]
+            static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+            public static WindowRect GetGameWindowRect()
+            {
+                IntPtr hWnd = FindWindow(null, "Euro Truck Simulator 2");
+                if (hWnd == IntPtr.Zero)
+                    return new WindowRect { X = 0, Y = 0, Width = 1, Height = 1 };
+
+                GetClientRect(hWnd, out RECT rect);
+                POINT topLeft = new() { X = rect.Left, Y = rect.Top };
+                ClientToScreen(hWnd, ref topLeft);
+
+                return new WindowRect
+                {
+                    X = topLeft.X,
+                    Y = topLeft.Y,
+                    Width = rect.Right - rect.Left,
+                    Height = rect.Bottom - rect.Top
+                };
+            }
+        #else
+            // No reliable way to get the game rect on Linux/Mac
+            // Well with a reasonable amount of security that is...
+            // TODO: Fix this?
+            public static WindowRect GetGameWindowRect()
+            {
+                float width = OverlayHandler.Current.OverlayWidth;
+                float height = OverlayHandler.Current.OverlayHeight;
+                return new WindowRect { X = 0, Y = 0, Width = (int)width, Height = (int)height };
+            }
+        #endif
+    }
 }

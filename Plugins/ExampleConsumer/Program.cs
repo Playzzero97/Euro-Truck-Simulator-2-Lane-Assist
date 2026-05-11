@@ -5,9 +5,11 @@ using ETS2LA.Backend.Events;
 using ETS2LA.Game.SDK;
 using ETS2LA.Overlay;
 using ETS2LA.Overlay.AR;
+using ETS2LA.Logging;
 
 using System.Numerics;
 using Hexa.NET.ImGui;
+using TruckLib;
 
 namespace ExampleConsumer;
 
@@ -55,10 +57,18 @@ public class MyConsumer : Plugin
                 AR.Draw3DLine(new ARCoordinate(Vector3.Zero, ARCoordinateCenter.Truck), new ARCoordinate(new Vector3(0, 1, 0), ARCoordinateCenter.Truck), 0x0000FFFF);
 
                 // Test window
-                AR.BeginWindow("Example Window", forceHeight: 120, forceWidth: 300);
+                AR.BeginWindow("Example Window", forceHeight: 60, forceWidth: 270, flags: ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, bgOpacity: 0.2f);
                 ImGui.Text($"Position: ({position.X:F0}, {position.Y:F0}, {position.Z:F0})");
                 ImGui.Text($"Speed: {speed*3.6:F1} km/h");
-                AR.EndWindow(new ARCoordinate(0,0,0, ARCoordinateCenter.Truck), Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
+
+                CameraData camera = CameraProvider.Current.GetCurrentData();
+                Quaternion invQuat = Quaternion.Conjugate(camera.truckRotation);
+                Vector3 euler = invQuat.ToEuler();
+                Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + 2 * (float)Math.PI, euler.Z + (float)Math.PI, 0);
+
+                ARCoordinate offset = ARCoordinate.InDirection(filteredRot, 13, ARCoordinateCenter.Truck);
+                offset += new ARCoordinate(new Vector3(0, -1, 0), ARCoordinateCenter.Truck);
+                AR.EndWindow(offset, camera.truckRotation, 2, invertY: true);
 
                 if (_trafficData != null)
                 {

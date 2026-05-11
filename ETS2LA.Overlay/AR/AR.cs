@@ -20,6 +20,8 @@ public class ARRenderer
     private Matrix4x4 thisFrameView;
     private int thisFrameOffsetX = 0;
     private int thisFrameOffsetZ = 0;
+    private int thisFrameWidth = 0;
+    private int thisFrameHeight = 0;
 
     // These are all variables that are needed for
     // rendering ImGui windows in 3D space.
@@ -64,6 +66,9 @@ public class ARRenderer
     {
         thisFrameProjection = default;
         thisFrameView = default;
+
+        thisFrameWidth = (int)OverlayHandler.Current.OverlayWidth;
+        thisFrameHeight = (int)OverlayHandler.Current.OverlayHeight;
         
         foreach (var callback in renderCallbacks)
         {
@@ -232,8 +237,9 @@ public class ARRenderer
     /// <param name="thickness">Thickness of the line in pixels.</param>
     public void Draw3DLine(ARCoordinate start, ARCoordinate end, UInt32 color, float thickness = 1.0f)
     {
-        Vector2? p1 = WorldToScreen(start, 3440, 1440);
-        Vector2? p2 = WorldToScreen(end, 3440, 1440);
+        Vector2? p1 = WorldToScreen(ARCoordinateToVector3(start), thisFrameWidth, thisFrameHeight);
+        Vector2? p2 = WorldToScreen(ARCoordinateToVector3(end), thisFrameWidth, thisFrameHeight);
+
         if (!p1.HasValue || !p2.HasValue) return;
 
         ImGui.GetBackgroundDrawList().AddLine(
@@ -252,7 +258,7 @@ public class ARRenderer
     /// <param name="thickness">The thickness of the circle outline.</param>
     public void Draw3DCircle(ARCoordinate center, float radius, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? centerScreen = WorldToScreen(ARCoordinateToVector3(center), 3440, 1440);
+        Vector2? centerScreen = WorldToScreen(ARCoordinateToVector3(center), thisFrameWidth, thisFrameHeight);
         if (!centerScreen.HasValue) 
             return;
 
@@ -283,7 +289,7 @@ public class ARRenderer
         Vector2[] screenPoints = new Vector2[points.Length];
         for (int i = 0; i < points.Length; i++)
         {
-            Vector2? screenPos = WorldToScreen(ARCoordinateToVector3(points[i]), 3440, 1440);
+            Vector2? screenPos = WorldToScreen(ARCoordinateToVector3(points[i]), thisFrameWidth, thisFrameHeight);
             if (!screenPos.HasValue)
                 return;
 
@@ -323,10 +329,10 @@ public class ARRenderer
     /// <param name="thickness">The thickness of a non filled quad.</param>
     public void Draw3DQuad(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, ARCoordinate p4, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), 3440, 1440);
-        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), 3440, 1440);
-        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), 3440, 1440);
-        Vector2? p4s = WorldToScreen(ARCoordinateToVector3(p4), 3440, 1440);
+        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), thisFrameWidth, thisFrameHeight);
+        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), thisFrameWidth, thisFrameHeight);
+        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), thisFrameWidth, thisFrameHeight);
+        Vector2? p4s = WorldToScreen(ARCoordinateToVector3(p4), thisFrameWidth, thisFrameHeight);
 
         if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue || !p4s.HasValue)
             return;
@@ -358,9 +364,9 @@ public class ARRenderer
     /// <param name="thickness">The thickness of a non filled triangle.</param>
     public void Draw3DTriangle(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), 3440, 1440);
-        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), 3440, 1440);
-        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), 3440, 1440);
+        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), thisFrameWidth, thisFrameHeight);
+        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), thisFrameWidth, thisFrameHeight);
+        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), thisFrameWidth, thisFrameHeight);
 
         if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue)
             return;
@@ -426,7 +432,7 @@ public class ARRenderer
     /// <param name="center">Center position of the window in world coordinates.</param>
     /// <param name="rotation">Rotation of the window in world coordinates.</param>
     /// <param name="width">Width of the window in world coordinates.</param>
-    public void EndWindow(ARCoordinate center, Quaternion rotation, float width)
+    public void EndWindow(ARCoordinate center, Quaternion rotation, float width, bool invertY = false)
     {
         var windowSize = ImGui.GetWindowSize();
         var windowPos = ImGui.GetWindowPos(); 
@@ -480,10 +486,10 @@ public class ARRenderer
         Vector3 pBL = Vector3.Transform(localBL, modelMatrix);
 
         // And then projection into screen space
-        Vector2? s1 = WorldToScreen(pTL, 3440, 1440);
-        Vector2? s2 = WorldToScreen(pTR, 3440, 1440);
-        Vector2? s3 = WorldToScreen(pBR, 3440, 1440);
-        Vector2? s4 = WorldToScreen(pBL, 3440, 1440);
+        Vector2? s1 = WorldToScreen(pTL, thisFrameWidth, thisFrameHeight);
+        Vector2? s2 = WorldToScreen(pTR, thisFrameWidth, thisFrameHeight);
+        Vector2? s3 = WorldToScreen(pBR, thisFrameWidth, thisFrameHeight);
+        Vector2? s4 = WorldToScreen(pBL, thisFrameWidth, thisFrameHeight);
 
         if (s1.HasValue && s2.HasValue && s3.HasValue && s4.HasValue)
         {
@@ -500,10 +506,10 @@ public class ARRenderer
             ImGui.GetBackgroundDrawList().AddImageQuad(
                 texRef,
                 s1.Value, s2.Value, s3.Value, s4.Value,
-                new Vector2(uvLeft,  uvTop),
-                new Vector2(uvRight, uvTop),
-                new Vector2(uvRight, uvBottom),
-                new Vector2(uvLeft,  uvBottom),
+                invertY ? new Vector2(uvLeft, uvBottom) : new Vector2(uvLeft,  uvTop),
+                invertY ? new Vector2(uvRight, uvBottom) : new Vector2(uvRight,  uvTop),
+                invertY ? new Vector2(uvRight, uvTop)    : new Vector2(uvRight, uvBottom),
+                invertY ? new Vector2(uvLeft, uvTop)      : new Vector2(uvLeft, uvBottom),
                 0xFFFFFFFF
             );
         }

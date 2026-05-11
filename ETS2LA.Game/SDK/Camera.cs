@@ -30,6 +30,12 @@ public class CameraData
     public Int16 cx;
     public Int16 cy;
     public Quaternion rotation = Quaternion.Identity;
+    /// <summary>
+    ///  The rotation of the truck during the camera timestamp. <br/> 
+    ///  Use this to sync anything you use the camera rotation to with the truck's rotation. <br/> 
+    ///  Avoid using the telemetry truck rotation in this case, to avoid rendering jitter.
+    /// </summary>
+    public Quaternion truckRotation = Quaternion.Identity;
     public Matrix4x4 projection;
 }
 
@@ -46,7 +52,7 @@ public class CameraProvider
 
     string mmapName = "Local\\ETS2LACameraProps";
     string mmapNameLinux = "/dev/shm/ETS2LACameraProps";
-    int mmapSize = 112;
+    int mmapSize = 128;
 
     public CameraProvider()
     {
@@ -159,6 +165,13 @@ public class CameraProvider
             _reader.ReadFloat(offset + 4),
             _reader.ReadFloat(offset + 8)
         ); offset += 12;
+
+        _currentData.truckRotation = new Quaternion(
+            _reader.ReadFloat(offset),
+            _reader.ReadFloat(offset + 4),
+            _reader.ReadFloat(offset + 8),
+            _reader.ReadFloat(offset + 12)
+        ); offset += 16;
 
         Events.Current.Publish<CameraData>(EventString, _currentData);
     }

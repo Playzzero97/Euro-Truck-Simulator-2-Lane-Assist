@@ -59,6 +59,44 @@ public struct ARCoordinate
     {
         return new Vector3(OffsetX, OffsetY, OffsetZ);
     }
+    
+    public static ARCoordinate operator +(ARCoordinate a, ARCoordinate b)
+    {
+        if (a.Center != b.Center)
+            throw new InvalidOperationException("Cannot add ARCoordinates with different centers.");
+
+        return new ARCoordinate(a.OffsetX + b.OffsetX, a.OffsetY + b.OffsetY, a.OffsetZ + b.OffsetZ, a.Center);
+    }
+
+    public static ARCoordinate operator -(ARCoordinate a, ARCoordinate b)
+    {
+        if (a.Center != b.Center)
+            throw new InvalidOperationException("Cannot subtract ARCoordinates with different centers.");
+
+        return new ARCoordinate(a.OffsetX - b.OffsetX, a.OffsetY - b.OffsetY, a.OffsetZ - b.OffsetZ, a.Center);
+    }
+
+    public static ARCoordinate operator *(ARCoordinate a, float scalar)
+    {
+        return new ARCoordinate(a.OffsetX * scalar, a.OffsetY * scalar, a.OffsetZ * scalar, a.Center);
+    }
+
+    public static ARCoordinate operator *(float scalar, ARCoordinate a)
+    {
+        return new ARCoordinate(a.OffsetX * scalar, a.OffsetY * scalar, a.OffsetZ * scalar, a.Center);
+    }
+    
+    public static ARCoordinate InDirection(Quaternion rotation, float distance, ARCoordinateCenter center = ARCoordinateCenter.World)
+    {
+        Vector3 forward = Vector3.Transform(Vector3.UnitZ, rotation);
+        return new ARCoordinate(forward * distance, center);
+    }
+
+    public static ARCoordinate FromAngles(float yaw, float pitch, float roll, float distance, ARCoordinateCenter center = ARCoordinateCenter.World)
+    {
+        Quaternion rotation = Quaternion.CreateFromYawPitchRoll(yaw, pitch, roll);
+        return InDirection(rotation, distance, center);
+    }
 }
 
 /// <summary>
