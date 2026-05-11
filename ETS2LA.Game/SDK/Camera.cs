@@ -1,6 +1,7 @@
 using ETS2LA.Shared;
 using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
+using ETS2LA.Telemetry;
 
 using System.Numerics;
 using System.IO.MemoryMappedFiles;
@@ -20,10 +21,18 @@ public class CameraData
     ///  coordinates, add the sector's `cx` and `cy` offsets multiplied by 512.
     /// </summary>
     public Vector3 position = Vector3.Zero;
+    public Vector3 truckPosition = Vector3.Zero;
     public Int16 cx;
     public Int16 cy;
     public Quaternion rotation = Quaternion.Identity;
     public Matrix4x4 projection;
+
+    /// <summary>
+    ///  This timestamp is in microseconds, it matches what would be 
+    ///  'simulated time' in the telemetry. Use this to interpolate if
+    ///  the telemetry is behind.
+    /// </summary>
+    public long timestamp;
 }
 
 public class CameraProvider
@@ -31,7 +40,7 @@ public class CameraProvider
     private static readonly Lazy<CameraProvider> _instance = new(() => new CameraProvider());
     public static CameraProvider Current => _instance.Value;
 
-    private float UpdateRate { get; set; } = 1f / 144f;
+    private float UpdateRate { get; set; } = 1f / 60f;
     public string EventString = "ETS2LA.Game.SDK.Camera.Data";
 
     private MemoryReader? _reader;
@@ -39,7 +48,7 @@ public class CameraProvider
 
     string mmapName = "Local\\ETS2LACameraProps";
     string mmapNameLinux = "/dev/shm/ETS2LACameraProps";
-    int mmapSize = 100;
+    int mmapSize = 112;
 
     public CameraProvider()
     {
@@ -145,7 +154,13 @@ public class CameraProvider
             _reader.ReadFloat(offset + 16), _reader.ReadFloat(offset + 20), _reader.ReadFloat(offset + 24), _reader.ReadFloat(offset + 28),
             _reader.ReadFloat(offset + 32), _reader.ReadFloat(offset + 36), _reader.ReadFloat(offset + 40), _reader.ReadFloat(offset + 44),
             _reader.ReadFloat(offset + 48), _reader.ReadFloat(offset + 52), _reader.ReadFloat(offset + 56), _reader.ReadFloat(offset + 60)
-        );
+        ); offset += 64;
+
+        _currentData.truckPosition = new Vector3(
+            _reader.ReadFloat(offset),
+            _reader.ReadFloat(offset + 4),
+            _reader.ReadFloat(offset + 8)
+        ); offset += 12;
 
         Events.Current.Publish<CameraData>(EventString, _currentData);
     }

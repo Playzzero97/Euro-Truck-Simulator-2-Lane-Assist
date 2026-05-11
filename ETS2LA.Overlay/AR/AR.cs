@@ -6,12 +6,14 @@ using Hexa.NET.ImGui;
 using TruckLib;
 using Hexa.NET.OpenGL;
 using Hexa.NET.ImGui.Backends.OpenGL3;
+using ETS2LA.Telemetry;
 
 namespace ETS2LA.Overlay.AR;
 
 public class ARRenderer
 {
     private CameraData cameraData;
+    private GameTelemetryData telemetryData;
     private List<ARRenderCallback> renderCallbacks = new();
     private Matrix4x4 thisFrameProjection;
     private Matrix4x4 thisFrameView;
@@ -46,6 +48,7 @@ public class ARRenderer
 
         currentWindowBuffer = new ARWindowBuffer(gl, 1280, 720);
         cameraData = CameraProvider.Current.GetCurrentData();
+        telemetryData = GameTelemetry.Current.GetCurrentData();
 
         ImGui.SetCurrentContext(mainContext);
     }
@@ -163,8 +166,6 @@ public class ARRenderer
         Matrix4x4 viewMatrix = GetViewMatrix();
         Matrix4x4 projectionMatrix = GetProjectionMatrix();
 
-        worldPos.X -= thisFrameOffsetX;
-        worldPos.Z -= thisFrameOffsetZ;
         Vector4 clipSpacePos = Vector4.Transform(new Vector4(worldPos, 1.0f), viewMatrix * projectionMatrix);
         if (clipSpacePos.W <= 0.1f) return null; // behind the camera
 
@@ -176,6 +177,34 @@ public class ARRenderer
         float y = (1.0f - ndc.Y) * 0.5f * destinationHeight;
 
         return new Vector2(x, y);
+    }
+
+    /// <summary>
+    ///  This function will return the world space coordinates of the provided ARCoordinate
+    ///  while also taking into account the coordinate center. Truck positions are interpolated
+    ///  to avoid jitter.
+    /// </summary>
+    /// <param name="coord">ARCoordinate to convert.</param>
+    /// <returns>World space coordinates.</returns>
+    /// <exception cref="ArgumentException"></exception>
+    public Vector3 ARCoordinateToVector3(ARCoordinate coord)
+    {
+        switch (coord.Center)
+        {
+            case ARCoordinateCenter.World:
+                return new Vector3(
+                    coord.OffsetX - thisFrameOffsetX, 
+                    coord.OffsetY, 
+                    coord.OffsetZ - thisFrameOffsetZ
+                );
+            case ARCoordinateCenter.Truck:
+                Logger.Debug(cameraData.truckPosition.ToString());
+                return coord.OffsetToVector3() + cameraData.truckPosition;
+            case ARCoordinateCenter.Camera:
+                return coord.OffsetToVector3() + cameraData.position;
+            default:
+                throw new ArgumentException("Invalid ARCoordinateCenter");
+        }
     }
 
     private uint ConvertColor(uint rgba)
@@ -196,10 +225,10 @@ public class ARRenderer
     /// <param name="end">End position of the line in world coordinates.</param>
     /// <param name="color">Color of the line.</param>
     /// <param name="thickness">Thickness of the line in pixels.</param>
-    public void Draw3DLine(Vector3 start, Vector3 end, UInt32 color, float thickness = 1.0f)
+    public void Draw3DLine(ARCoordinate start, ARCoordinate end, UInt32 color, float thickness = 1.0f)
     {
-        Vector2? p1 = WorldToScreen(start, 3440, 1440);
-        Vector2? p2 = WorldToScreen(end, 3440, 1440);
+        Vector2? p1 = WorldToScreen(ARCoordinateToVector3(start), 3440, 1440);
+        Vector2? p2 = WorldToScreen(ARCoordinateToVector3(end), 3440, 1440);
 
         if (p1.HasValue && p2.HasValue)
         {
@@ -249,7 +278,7 @@ public class ARRenderer
     /// <param name="center">Center position of the window in world coordinates.</param>
     /// <param name="rotation">Rotation of the window in world coordinates.</param>
     /// <param name="width">Width of the window in world coordinates.</param>
-    public void EndWindow(Vector3 center, Quaternion rotation, float width)
+    public void EndWindow(ARCoordinate center, Quaternion rotation, float width)
     {
         var windowSize = ImGui.GetWindowSize();
         var windowPos = ImGui.GetWindowPos(); 
@@ -294,7 +323,8 @@ public class ARRenderer
         Vector3 localBL = new Vector3(-halfW, -halfH, 0);
 
         // Into world space
-        Matrix4x4 modelMatrix = Matrix4x4.CreateFromQuaternion(correctedRot) * Matrix4x4.CreateTranslation(center);
+        Matrix4x4 modelMatrix = Matrix4x4.CreateFromQuaternion(correctedRot) 
+                              * Matrix4x4.CreateTranslation(ARCoordinateToVector3(center));
         
         Vector3 pTL = Vector3.Transform(localTL, modelMatrix);
         Vector3 pTR = Vector3.Transform(localTR, modelMatrix);

@@ -47,16 +47,16 @@ public class MyConsumer : Plugin
             {
                 ARRenderer AR = OverlayHandler.Current.AR;
                 // Test lines
-                AR.Draw3DLine(position, position + new Vector3(0, 0, 1), 0xFF0000FF);
-                AR.Draw3DLine(position, position + new Vector3(1, 0, 0), 0x00FF00FF);
-                AR.Draw3DLine(position, position + new Vector3(0, 1, 0), 0x0000FFFF);
+                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(0, 0, 1)), 0xFF0000FF);
+                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(1, 0, 0)), 0x00FF00FF);
+                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(0, 1, 0)), 0x0000FFFF);
 
                 // Test window
                 AR.BeginWindow("Example Window");
                 ImGui.Text($"Position: ({position.X:F2}, {position.Y:F2}, {position.Z:F2})");
                 ImGui.Text($"Speed: {speed:F2} km/h");
                 ImGui.Text($"RPM: {rpm:F0} RPM");
-                AR.EndWindow(position, Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
+                AR.EndWindow(new ARCoordinate(0,0,0, ARCoordinateCenter.Truck), Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
             }
         });
     }

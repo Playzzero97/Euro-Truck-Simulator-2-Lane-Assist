@@ -377,9 +377,9 @@ namespace ETS2LA.Telemetry
         public bool sdkActive;
         public bool paused;
 
-        public float time;
-        public float simulatedTime;
-        public float renderTime;
+        public ulong time;
+        public ulong simulatedTime;
+        public ulong renderTime;
         public float multiplayerTimeOffset;
 
         // Other categories

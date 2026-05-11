@@ -2,6 +2,7 @@ using Hexa.NET.OpenGL;
 using Avalonia.Data;
 
 using ETS2LA.Logging;
+using System.Numerics;
 
 namespace ETS2LA.Overlay.AR;
 
@@ -15,6 +16,46 @@ public class ARRenderCallback
 {
     public ARRendererDefinition Definition;
     public Action Render3D = () => { };
+}
+
+public enum ARCoordinateCenter
+{
+    World,
+    Truck,
+    Camera
+}
+
+/// <summary>
+///  The conversion from this struct to vector3's is done in AR.cs.
+///  You can access the functions there.
+/// </summary>
+public struct ARCoordinate
+{
+    public float OffsetX;
+    public float OffsetY;
+    public float OffsetZ;
+    public ARCoordinateCenter Center;
+
+    public ARCoordinate(float offsetX, float offsetY, float offsetZ, ARCoordinateCenter center = ARCoordinateCenter.World)
+    {
+        OffsetX = offsetX;
+        OffsetY = offsetY;
+        OffsetZ = offsetZ;
+        Center = center;
+    }
+
+    public ARCoordinate(Vector3 offset, ARCoordinateCenter center = ARCoordinateCenter.World)
+    {
+        OffsetX = offset.X;
+        OffsetY = offset.Y;
+        OffsetZ = offset.Z;
+        Center = center;
+    }
+
+    public Vector3 OffsetToVector3()
+    {
+        return new Vector3(OffsetX, OffsetY, OffsetZ);
+    }
 }
 
 /// <summary>
