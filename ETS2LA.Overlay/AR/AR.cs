@@ -24,6 +24,7 @@ public class ARRenderer
     // These are all variables that are needed for
     // rendering ImGui windows in 3D space.
     private GL gl;
+    private bool isWindowContextInitialized = false;
     private ImGuiContextPtr arWindowContext;
     private ARWindowBuffer currentWindowBuffer;
     private ImGuiContextPtr oldContext;
@@ -396,6 +397,11 @@ public class ARRenderer
         float bgOpacity = 1.0f
     )
     {
+        if (isWindowContextInitialized) {
+            Logger.Warn("AR window context already initialized. You probably called BeginWindow without a matching EndWindow.");
+            return;
+        }
+
         oldContext = ImGui.GetCurrentContext();
         ImGui.SetCurrentContext(arWindowContext);
 
@@ -410,6 +416,7 @@ public class ARRenderer
             ImGui.SetNextWindowSizeConstraints(new Vector2(0, 0), new Vector2(currentWindowBuffer.Width, currentWindowBuffer.Height));
 
         ImGui.Begin(id, flags);
+        isWindowContextInitialized = true;
     }
 
     /// <summary>
@@ -500,5 +507,7 @@ public class ARRenderer
                 0xFFFFFFFF
             );
         }
+
+        isWindowContextInitialized = false;
     }
 }

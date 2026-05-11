@@ -52,6 +52,9 @@ public struct ARCoordinate
         Center = center;
     }
 
+    public static implicit operator ARCoordinate(Vector3 offset) 
+        => new ARCoordinate(offset);
+
     public Vector3 OffsetToVector3()
     {
         return new Vector3(OffsetX, OffsetY, OffsetZ);
