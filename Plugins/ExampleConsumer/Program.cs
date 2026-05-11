@@ -50,16 +50,15 @@ public class MyConsumer : Plugin
             {
                 ARRenderer AR = OverlayHandler.Current.AR;
                 // Test lines
-                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(0, 0, 1)), 0xFF0000FF);
-                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(1, 0, 0)), 0x00FF00FF);
-                AR.Draw3DLine(new ARCoordinate(position), new ARCoordinate(position + new Vector3(0, 1, 0)), 0x0000FFFF);
+                AR.Draw3DLine(new ARCoordinate(Vector3.Zero, ARCoordinateCenter.Truck), new ARCoordinate(new Vector3(0, 0, 1), ARCoordinateCenter.Truck), 0xFF0000FF);
+                AR.Draw3DLine(new ARCoordinate(Vector3.Zero, ARCoordinateCenter.Truck), new ARCoordinate(new Vector3(1, 0, 0), ARCoordinateCenter.Truck), 0x00FF00FF);
+                AR.Draw3DLine(new ARCoordinate(Vector3.Zero, ARCoordinateCenter.Truck), new ARCoordinate(new Vector3(0, 1, 0), ARCoordinateCenter.Truck), 0x0000FFFF);
 
                 // Test window
-                AR.BeginWindow("Example Window");
-                ImGui.Text($"Position: ({position.X:F2}, {position.Y:F2}, {position.Z:F2})");
-                ImGui.Text($"Speed: {speed:F2} km/h");
-                ImGui.Text($"RPM: {rpm:F0} RPM");
-                AR.EndWindow(position, Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
+                AR.BeginWindow("Example Window", forceHeight: 120, forceWidth: 300);
+                ImGui.Text($"Position: ({position.X:F0}, {position.Y:F0}, {position.Z:F0})");
+                ImGui.Text($"Speed: {speed*3.6:F1} km/h");
+                AR.EndWindow(new ARCoordinate(0,0,0, ARCoordinateCenter.Truck), Quaternion.CreateFromYawPitchRoll(0, 0, 0), 4);
 
                 if (_trafficData != null)
                 {
@@ -74,12 +73,12 @@ public class MyConsumer : Plugin
                             bottomCorners[3] + new Vector3(0, vehicle.size.Y, 0)
                         };
 
-                        AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
-                        AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+                        AR.Draw3DQuad(new ARCoordinate(bottomCorners[0]), new ARCoordinate(bottomCorners[1]), new ARCoordinate(bottomCorners[2]), new ARCoordinate(bottomCorners[3]), 0xFFFFFF);
+                        AR.Draw3DQuad(new ARCoordinate(topCorners[0]), new ARCoordinate(topCorners[1]), new ARCoordinate(topCorners[2]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[0]), new ARCoordinate(topCorners[0]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[1]), new ARCoordinate(topCorners[1]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[2]), new ARCoordinate(topCorners[2]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[3]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
 
                         foreach (var trailer in vehicle.trailers)
                         {
@@ -92,12 +91,12 @@ public class MyConsumer : Plugin
                                 bottomCorners[3] + new Vector3(0, trailer.size.Y, 0)
                             };
 
-                            AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
-                            AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
-                            AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
-                            AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
-                            AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
-                            AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+                            AR.Draw3DQuad(new ARCoordinate(bottomCorners[0]), new ARCoordinate(bottomCorners[1]), new ARCoordinate(bottomCorners[2]), new ARCoordinate(bottomCorners[3]), 0xFFFFFF);
+                            AR.Draw3DQuad(new ARCoordinate(topCorners[0]), new ARCoordinate(topCorners[1]), new ARCoordinate(topCorners[2]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
+                            AR.Draw3DLine(new ARCoordinate(bottomCorners[0]), new ARCoordinate(topCorners[0]), 0xFFFFFF);
+                            AR.Draw3DLine(new ARCoordinate(bottomCorners[1]), new ARCoordinate(topCorners[1]), 0xFFFFFF);
+                            AR.Draw3DLine(new ARCoordinate(bottomCorners[2]), new ARCoordinate(topCorners[2]), 0xFFFFFF);
+                            AR.Draw3DLine(new ARCoordinate(bottomCorners[3]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
                         }
                     }
                 }
@@ -114,12 +113,12 @@ public class MyConsumer : Plugin
                             bottomCorners[3] + new Vector3(0, vehicle.size.Y, 0)
                         };
 
-                        AR.Draw3DQuad(bottomCorners[0], bottomCorners[1], bottomCorners[2], bottomCorners[3], 0xFFFFFF);
-                        AR.Draw3DQuad(topCorners[0], topCorners[1], topCorners[2], topCorners[3], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[0], topCorners[0], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[1], topCorners[1], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[2], topCorners[2], 0xFFFFFF);
-                        AR.Draw3DLine(bottomCorners[3], topCorners[3], 0xFFFFFF);
+                        AR.Draw3DQuad(new ARCoordinate(bottomCorners[0]), new ARCoordinate(bottomCorners[1]), new ARCoordinate(bottomCorners[2]), new ARCoordinate(bottomCorners[3]), 0xFFFFFF);
+                        AR.Draw3DQuad(new ARCoordinate(topCorners[0]), new ARCoordinate(topCorners[1]), new ARCoordinate(topCorners[2]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[0]), new ARCoordinate(topCorners[0]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[1]), new ARCoordinate(topCorners[1]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[2]), new ARCoordinate(topCorners[2]), 0xFFFFFF);
+                        AR.Draw3DLine(new ARCoordinate(bottomCorners[3]), new ARCoordinate(topCorners[3]), 0xFFFFFF);
                     }
                 }
             }

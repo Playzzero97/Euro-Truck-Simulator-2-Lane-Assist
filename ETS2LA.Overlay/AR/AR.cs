@@ -198,8 +198,12 @@ public class ARRenderer
                     coord.OffsetZ - thisFrameOffsetZ
                 );
             case ARCoordinateCenter.Truck:
-                Logger.Debug(cameraData.truckPosition.ToString());
-                return coord.OffsetToVector3() + cameraData.truckPosition;
+                Vector3 offset = coord.OffsetToVector3();
+                return new Vector3(
+                    offset.X + cameraData.truckPosition.X - thisFrameOffsetX,
+                    offset.Y + cameraData.truckPosition.Y,
+                    offset.Z + cameraData.truckPosition.Z - thisFrameOffsetZ
+                );
             case ARCoordinateCenter.Camera:
                 return coord.OffsetToVector3() + cameraData.position;
             default:
@@ -221,8 +225,8 @@ public class ARRenderer
     ///  Draw a line in 3D space. The line will be transformed and projected
     ///  onto the AR overlay.
     /// </summary>
-    /// <param name="start">Start position of the line in world coordinates.</param>
-    /// <param name="end">End position of the line in world coordinates.</param>
+    /// <param name="start">Start position of the line.</param>
+    /// <param name="end">End position of the line.</param>
     /// <param name="color">Color of the line.</param>
     /// <param name="thickness">Thickness of the line in pixels.</param>
     public void Draw3DLine(ARCoordinate start, ARCoordinate end, UInt32 color, float thickness = 1.0f)
@@ -240,14 +244,14 @@ public class ARRenderer
     /// <summary>
     ///  Draw a 3D circle in world space.
     /// </summary>
-    /// <param name="center">The world space center of the circle.</param>
+    /// <param name="center">The center of the circle.</param>
     /// <param name="radius">The radius of the circle.</param>
     /// <param name="color">The color of the circle.</param>
     /// <param name="filled">Whether the circle should be filled.</param>
     /// <param name="thickness">The thickness of the circle outline.</param>
-    public void Draw3DCircle(Vector3 center, float radius, UInt32 color, bool filled = false, float thickness = 1)
+    public void Draw3DCircle(ARCoordinate center, float radius, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? centerScreen = WorldToScreen(center, 3440, 1440);
+        Vector2? centerScreen = WorldToScreen(ARCoordinateToVector3(center), 3440, 1440);
         if (!centerScreen.HasValue) 
             return;
 
@@ -270,7 +274,7 @@ public class ARRenderer
     /// <param name="color">The color of the polygon.</param>
     /// <param name="filled">Whether the polygon should be filled.</param>
     /// <param name="thickness">The thickness of the polygon outline.</param>
-    public void Draw3DPolygon(Vector3[] points, UInt32 color, bool filled = false, float thickness = 1)
+    public void Draw3DPolygon(ARCoordinate[] points, UInt32 color, bool filled = false, float thickness = 1)
     {
         if (points == null || points.Length < 3)
             return;
@@ -278,7 +282,7 @@ public class ARRenderer
         Vector2[] screenPoints = new Vector2[points.Length];
         for (int i = 0; i < points.Length; i++)
         {
-            Vector2? screenPos = WorldToScreen(points[i], 3440, 1440);
+            Vector2? screenPos = WorldToScreen(ARCoordinateToVector3(points[i]), 3440, 1440);
             if (!screenPos.HasValue)
                 return;
 
@@ -316,12 +320,12 @@ public class ARRenderer
     /// <param name="color">Color of the quad.</param>
     /// <param name="filled">Whether this quad should be filled.</param>
     /// <param name="thickness">The thickness of a non filled quad.</param>
-    public void Draw3DQuad(Vector3 p1, Vector3 p2, Vector3 p3, Vector3 p4, UInt32 color, bool filled = false, float thickness = 1)
+    public void Draw3DQuad(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, ARCoordinate p4, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? p1s = WorldToScreen(p1, 3440, 1440);
-        Vector2? p2s = WorldToScreen(p2, 3440, 1440);
-        Vector2? p3s = WorldToScreen(p3, 3440, 1440);
-        Vector2? p4s = WorldToScreen(p4, 3440, 1440);
+        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), 3440, 1440);
+        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), 3440, 1440);
+        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), 3440, 1440);
+        Vector2? p4s = WorldToScreen(ARCoordinateToVector3(p4), 3440, 1440);
 
         if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue || !p4s.HasValue)
             return;
@@ -351,11 +355,11 @@ public class ARRenderer
     /// <param name="color">The color of the triangle.</param>
     /// <param name="filled">Whether this triangle should be filled.</param>
     /// <param name="thickness">The thickness of a non filled triangle.</param>
-    public void Draw3DTriangle(Vector3 p1, Vector3 p2, Vector3 p3, UInt32 color, bool filled = false, float thickness = 1)
+    public void Draw3DTriangle(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, UInt32 color, bool filled = false, float thickness = 1)
     {
-        Vector2? p1s = WorldToScreen(p1, 3440, 1440);
-        Vector2? p2s = WorldToScreen(p2, 3440, 1440);
-        Vector2? p3s = WorldToScreen(p3, 3440, 1440);
+        Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), 3440, 1440);
+        Vector2? p2s = WorldToScreen(ARCoordinateToVector3(p2), 3440, 1440);
+        Vector2? p3s = WorldToScreen(ARCoordinateToVector3(p3), 3440, 1440);
 
         if (!p1s.HasValue || !p2s.HasValue || !p3s.HasValue)
             return;

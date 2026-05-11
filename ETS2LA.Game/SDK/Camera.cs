@@ -21,18 +21,16 @@ public class CameraData
     ///  coordinates, add the sector's `cx` and `cy` offsets multiplied by 512.
     /// </summary>
     public Vector3 position = Vector3.Zero;
+    /// <summary>
+    ///  The world space position of the truck during the camera timestamp. <br/> Use
+    ///  this to sync anything you use the camera position to with the truck's position. <br/>
+    ///  Avoid using the telemetry truck position in this case, to avoid rendering jitter.
+    /// </summary>
     public Vector3 truckPosition = Vector3.Zero;
     public Int16 cx;
     public Int16 cy;
     public Quaternion rotation = Quaternion.Identity;
     public Matrix4x4 projection;
-
-    /// <summary>
-    ///  This timestamp is in microseconds, it matches what would be 
-    ///  'simulated time' in the telemetry. Use this to interpolate if
-    ///  the telemetry is behind.
-    /// </summary>
-    public long timestamp;
 }
 
 public class CameraProvider
