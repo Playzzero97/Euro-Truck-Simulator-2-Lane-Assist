@@ -388,6 +388,24 @@ public class ARRenderer
     }
 
     /// <summary>
+    ///  Draw text in world space. The text will be transformed and projected
+    ///  onto the AR overlay. The position of the text is based on the top left
+    ///  corner of the text's bounding box.
+    /// </summary>
+    /// <param name="position"></param>
+    /// <param name="text"></param>
+    /// <param name="color"></param>
+    public void Draw3DText(ARCoordinate position, string text, UInt32 color)
+    {
+        Vector2? screenPos = WorldToScreen(ARCoordinateToVector3(position), thisFrameWidth, thisFrameHeight);
+        if (!screenPos.HasValue) return;
+
+        ImGui.GetBackgroundDrawList().AddText(
+            screenPos.Value, ConvertColor(color), text
+        );
+    }
+
+    /// <summary>
     ///  Begin rendering an ImGui window in the AR overlay.
     /// </summary>
     /// <param name="id">Id of the window.</param>

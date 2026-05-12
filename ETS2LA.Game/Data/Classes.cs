@@ -126,11 +126,17 @@ public enum Side
 }
 
 /// <summary>
+///  Wrapper to represent any item we parse ourselves. Equal to IMapItem / IMapObject
+///  in usage. Check the actual class using "is" e.g. `if (item is ParsedRoad)`.
+/// </summary>
+public interface IParsedItem { }
+
+/// <summary>
 ///  Parsed road that takes into account all ETS2LA specific adjustments,
 ///  such as lane offsets and Next/Last items etc... <br/><br/>
 ///  You can get a ParsedRoad by instantiating it with a base Road.
 /// </summary>
-public class ParsedRoad
+public class ParsedRoad : IParsedItem
 {
     /// <summary>
     ///  This is the original base road data as parsed from the map.
@@ -145,13 +151,13 @@ public class ParsedRoad
     ///  mean that Start -> End means the right side is going that direction.
     ///  Sometimes roads can be "reversed" in the map data.
     /// </summary>
-    public Node? StartNode;
+    public Node StartNode;
     /// <summary>
     ///  End node for the current road piece. Note that this doesn't necessarily
     ///  mean that Start -> End means the right side is going that direction.
     ///  Sometimes roads can be "reversed" in the map data.
     /// </summary>
-    public Node? EndNode;
+    public Node EndNode;
 
     /// <summary>
     ///  The MapItem that connects to the StartNode from the other side.
@@ -181,11 +187,34 @@ public class ParsedRoad
         LeftLaneOffsetsEnd = RoadUtils.CalculateRoadLaneCenters(road).Left;
         RightLaneOffsetsEnd = RoadUtils.CalculateRoadLaneCenters(road).Right;
 
+        EndNode = (Node)road.ForwardNode;
+        StartNode = (Node)road.Node;
+
         if (Last is Road lastRoad)
         {
             LeftLaneOffsetsStart = RoadUtils.CalculateRoadLaneCenters(lastRoad).Left;
             RightLaneOffsetsStart = RoadUtils.CalculateRoadLaneCenters(lastRoad).Right;
         }
+    }
+
+    public Node GetOtherNode(Node node)
+    {
+        if (node.Uid == StartNode.Uid)
+            return EndNode;
+        else if (node.Uid == EndNode.Uid)
+            return StartNode;
+        else
+            throw new ArgumentException("Node is not part of this road");
+    }
+
+    public Node GetNodeInCommon(ParsedRoad other)
+    {
+        if (StartNode.Uid == other.StartNode.Uid || StartNode.Uid == other.EndNode.Uid)
+            return StartNode;
+        else if (EndNode.Uid == other.StartNode.Uid || EndNode.Uid == other.EndNode.Uid)
+            return EndNode;
+        else
+            throw new ArgumentException("No common node between the two roads");
     }
 
     /// <summary>
@@ -238,9 +267,10 @@ public class ParsedRoad
     /// <param name="t">The interpolation factor/parameter (0 to 1)</param>
     /// <param name="side">The side for which to interpolate.</param>
     /// <param name="laneIndex">The index of the lane for which to interpolate.</param>
+    /// <param name="additionalOffset">Additional offset in meters to add to the lane offset. Positive values go to the right, negative to the left.</param>
     /// <returns>TruckLib.OrientedPoint at this location.</returns>
     /// <exception cref="ArgumentOutOfRangeException">When t is not between 0 and 1, or when laneIndex is not valid for the specified side.</exception>
-    public OrientedPoint InterpolateLane(float t, Side side, int laneIndex)
+    public OrientedPoint InterpolateLane(float t, Side side, int laneIndex, float additionalOffset = 0)
     {
         if (t < 0 || t > 1) throw new ArgumentOutOfRangeException(nameof(t), "t must be between 0 and 1");
         if (side == Side.Left && (laneIndex < 0 || laneIndex >= LeftLaneOffsetsEnd.Length)) 
@@ -257,7 +287,7 @@ public class ParsedRoad
         
         OrientedPoint point = Road.InterpolateCurve(t);
         Vector3 normal = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, point.Rotation));
-        point.Position = point.Position + normal * -offset;
+        point.Position = point.Position + normal * -(offset + additionalOffset);
 
         return point;
     }
@@ -268,18 +298,19 @@ public class ParsedRoad
     /// </summary>
     /// <param name="t">The interpolation factor/parameter (0 to 1)</param>
     /// <param name="laneIndex">The index of the lane for which to interpolate.</param>
+    /// <param name="additionalOffset">Additional offset to apply on top of the lane offset, in meters. Positive values go to the right, negative values go to the left.</param>
     /// <returns>TruckLib.OrientedPoint at this location.</returns>
     /// <exception cref="ArgumentOutOfRangeException">When t is not between 0 and 1, or when laneIndex is not valid for the specified side.</exception>
-    public OrientedPoint InterpolateLane(float t, int laneIndex)
+    public OrientedPoint InterpolateLane(float t, int laneIndex, float additionalOffset = 0)
     {
         int leftLaneCount = LeftLaneOffsetsEnd.Length;
         if (laneIndex < 0 || laneIndex >= leftLaneCount + RightLaneOffsetsEnd.Length) 
             throw new ArgumentOutOfRangeException(nameof(laneIndex), $"laneIndex must be between 0 and {leftLaneCount + RightLaneOffsetsEnd.Length - 1}");
         
         if (laneIndex < leftLaneCount)
-            return InterpolateLane(t, Side.Left, laneIndex);
+            return InterpolateLane(t, Side.Left, laneIndex, additionalOffset);
         else
-            return InterpolateLane(t, Side.Right, laneIndex - leftLaneCount);
+            return InterpolateLane(t, Side.Right, laneIndex - leftLaneCount, additionalOffset);
     }
 
     /// <summary>
@@ -289,10 +320,11 @@ public class ParsedRoad
     /// <param name="dist">The distance along the road (0 to road length)</param>
     /// <param name="side">The side of the road (left or right)</param>
     /// <param name="laneIndex">The index of the lane for which to interpolate.</param>
+    /// <param name="additionalOffset">Additional offset to apply on top of the lane offset, in meters. Positive values go to the right, negative values go to the left.</param>
     /// <returns>TruckLib.OrientedPoint at this location.</returns>
     /// <exception cref="ArgumentOutOfRangeException">When dist is not between 0 and road length.</exception>
     /// <exception cref="ArgumentOutOfRangeException">When laneIndex is not valid for the specified side.</exception>
-    public OrientedPoint? InterpolateLaneDist(float dist, Side side, int laneIndex)
+    public OrientedPoint? InterpolateLaneDist(float dist, Side side, int laneIndex, float additionalOffset = 0)
     {
         if (dist < 0 || dist > Road.Length) throw new ArgumentOutOfRangeException(nameof(dist), "dist must be between 0 and road length");
         if (side == Side.Left && (laneIndex < 0 || laneIndex >= LeftLaneOffsetsEnd.Length)) 
@@ -312,7 +344,7 @@ public class ParsedRoad
         OrientedPoint p = point.Value;
 
         Vector3 normal = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, point.Value.Rotation));
-        p.Position = p.Position + normal * -offset;
+        p.Position = p.Position + normal * -(offset + additionalOffset);
 
         return p;
     }
@@ -323,19 +355,20 @@ public class ParsedRoad
     /// </summary>
     /// <param name="dist">The distance along the road (0 to road length)</param>
     /// <param name="laneIndex">The index of the lane for which to interpolate.</param>
+    /// <param name="additionalOffset">Additional offset to apply on top of the lane offset, in meters. Positive values go to the right, negative values go to the left.</param>
     /// <returns>TruckLib.OrientedPoint at this location.</returns>
     /// <exception cref="ArgumentOutOfRangeException">When dist is not between 0 and road length.</exception>
     /// <exception cref="ArgumentOutOfRangeException">When laneIndex is not valid for the specified side.</exception>
-    public OrientedPoint? InterpolateLaneDist(float dist, int laneIndex)
+    public OrientedPoint? InterpolateLaneDist(float dist, int laneIndex, float additionalOffset = 0)
     {
         int leftLaneCount = LeftLaneOffsetsEnd.Length;
         if (laneIndex < 0 || laneIndex >= leftLaneCount + RightLaneOffsetsEnd.Length) 
             throw new ArgumentOutOfRangeException(nameof(laneIndex), $"laneIndex must be between 0 and {leftLaneCount + RightLaneOffsetsEnd.Length - 1}");
         
         if (laneIndex < leftLaneCount)
-            return InterpolateLaneDist(dist, Side.Left, laneIndex);
+            return InterpolateLaneDist(dist, Side.Left, laneIndex, additionalOffset);
         else
-            return InterpolateLaneDist(dist, Side.Right, laneIndex - leftLaneCount);
+            return InterpolateLaneDist(dist, Side.Right, laneIndex - leftLaneCount, additionalOffset);
     }
 
     /// <summary>
