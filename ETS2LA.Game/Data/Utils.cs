@@ -196,6 +196,16 @@ public static class PrefabUtils
         return HermiteSpline.InterpolatePolyline(fakeStart, fakeEnd, t);
     }
 
+    public static OrientedPoint InterpolateNavCurveOriented(NavCurve curve, float t)
+    {
+        var fakeStart = new FakeNode(curve.StartPosition, curve.StartRotation);
+        var fakeEnd = new FakeNode(curve.EndPosition, curve.EndRotation);
+
+        var position = HermiteSpline.InterpolatePolyline(fakeStart, fakeEnd, t);
+        var rotation = MathEx.GetNodeRotation(HermiteSpline.DerivativePolyline(fakeStart, fakeEnd, t));
+        return new OrientedPoint(position, rotation);
+    }
+
     /// <summary>
     ///  This class is effectively just a position/rotation container so that we can use the existing HermiteSpline
     ///  interpolation code without needing to touch TruckLib. Should not be used for any other purpose!

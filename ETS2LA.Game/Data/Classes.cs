@@ -3,7 +3,11 @@ using TruckLib.ScsMap;
 using TruckLib;
 
 using ETS2LA.Game.Utils;
+using ETS2LA.Game.PpdFiles;
 using System.Numerics;
+using TruckLib.Models.Ppd;
+using ETS2LA.Settings.Global;
+using ETS2LA.Logging;
 
 namespace ETS2LA.Game.Data;
 
@@ -42,6 +46,12 @@ public enum IgnoredItemTypes
     Hookup = 0x2F,
     VisibilityArea = 0x30,
 };
+
+public enum Direction
+{
+    Forward,
+    Backward
+}
 
 /// <summary>
 ///  Contains all map data for the game. This class overrides TruckLib.ScsMap.Map
@@ -215,6 +225,16 @@ public class ParsedRoad : IParsedItem
             return EndNode;
         else
             throw new ArgumentException("No common node between the two roads");
+    }
+
+    public Node GetNodeInCommon(ParsedPrefab prefab)
+    {
+        foreach (var node in prefab.Prefab.Nodes)
+        {
+            if (node.Uid == StartNode.Uid || node.Uid == EndNode.Uid)
+                return (Node)node;
+        }
+        throw new ArgumentException("No common node between the road and the prefab");
     }
 
     /// <summary>
@@ -409,5 +429,270 @@ public class ParsedRoad : IParsedItem
     public float DistanceToFactor(float distance)
     {
         return distance / Road.Length;
+    }
+}
+
+public class PrefabPath
+{
+    public Node StartNode;
+    public Node EndNode;
+    public List<NavCurve> Curves;
+    public float Length;
+    public Direction CurveDirection;
+
+    // This is set from the source prefab, it's used to a point
+    // to world space once it's generated.
+    private Vector3 prefabStart;
+    private Matrix4x4 rotationMatrix;
+
+    public PrefabPath(Node startNode, Node endNode, List<NavCurve> curves, Direction dir, Matrix4x4 rotationMatrix, Vector3 prefabStart)
+    {
+        StartNode = startNode;
+        EndNode = endNode;
+        Curves = curves;
+        Length = curves.Sum(c => c.Length);
+        CurveDirection = dir;
+        this.prefabStart = prefabStart;
+        this.rotationMatrix = rotationMatrix;
+    }
+
+    /// <summary>
+    ///  Get the point at the specified distance along the path. Distance must be between 0 and path length.
+    /// </summary>
+    /// <param name="distance">Distance along the path to interpolate.</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentOutOfRangeException">Distance is out of bounds.</exception>
+    public OrientedPoint? InterpolateDist(float distance)
+    {
+        if (distance < 0 || distance > Length) throw new ArgumentOutOfRangeException(nameof(distance), "distance must be between 0 and path length");
+    
+        float distCovered = CurveDirection == Direction.Forward ? 0 : Length;
+        foreach (var curve in Curves)
+        {
+            if (
+                (CurveDirection == Direction.Forward && distCovered + curve.Length >= distance) ||
+                (CurveDirection == Direction.Backward && distCovered - curve.Length <= distance)
+            )
+            {
+                float distInCurve = CurveDirection == Direction.Forward ? distance - distCovered : distCovered - distance;
+                float t = distInCurve / curve.Length;
+                if (CurveDirection == Direction.Backward)
+                    t = 1 - t;
+
+                var point = PrefabUtils.InterpolateNavCurveOriented(curve, t);
+                point.Position = Vector3.Transform(point.Position + prefabStart, rotationMatrix);
+                point.Rotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(rotationMatrix) * point.Rotation);
+                return point;
+            }
+            if (CurveDirection == Direction.Forward)
+                distCovered += curve.Length;
+            else
+                distCovered -= curve.Length;
+        }
+        return null;
+    }
+
+    /// <summary>
+    ///  Get the point at the specified factor along the path. Factor must be between 0 and 1.
+    /// </summary>
+    /// <param name="t">Factor along the path to interpolate.</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentOutOfRangeException">Factor is out of bounds.</exception>
+    public OrientedPoint? Interpolate(float t)
+    {
+        if (t < 0 || t > 1) throw new ArgumentOutOfRangeException(nameof(t), "t must be between 0 and 1");
+        return InterpolateDist(t * Length);
+    }
+
+    /// <summary>
+    ///  This method calculates the factor for a given along the path.
+    ///  Used when you need the equivalent location on a path, for whatever
+    ///  starting point.
+    /// </summary>
+    /// <param name="point">Point to project onto the path.</param>
+    /// <returns>Factor from 0-1 along the path.</returns>
+    public float GetFactorForPoint(Vector3 point)
+    {        
+        float closestDistance = float.MaxValue;
+        float closestDistAlongPath = 0;
+        float distCovered = 0;
+
+        foreach (var curve in Curves)
+        {
+            Vector3 startPos = Vector3.Transform(curve.StartPosition + prefabStart, rotationMatrix);
+            Vector3 endPos = Vector3.Transform(curve.EndPosition + prefabStart, rotationMatrix);
+
+            Vector3 ab = endPos - startPos;
+            float lengthSquared = Vector3.Dot(ab, ab);
+            if (lengthSquared == 0) continue;
+
+            float distance = Vector3.Dot(point - startPos, ab);
+            float t = Vector3.Dot(point - startPos, ab) / lengthSquared;
+            t = Math.Clamp(t, 0, 1);
+
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestDistAlongPath = distCovered + t * curve.Length;
+            }
+
+            distCovered += curve.Length;
+        }
+
+        float finalT = closestDistAlongPath / Length;
+        if (CurveDirection == Direction.Backward) finalT = 1 - finalT;
+        return finalT;
+    }
+}
+
+public class ParsedPrefab : IParsedItem
+{
+    public Prefab Prefab;
+    public PrefabDescriptor? Descriptor;
+
+    private Vector3 prefabStart;
+    private Vector3 prefabRotation;
+    Matrix4x4 rotationMatrix;
+
+    public ParsedPrefab(Prefab prefab)
+    {
+        Prefab = prefab;
+        Descriptor = (PrefabDescriptor?)PpdFileHandler.Current.GetPpdFile(prefab.Model.ToString());
+
+        prefabStart = prefab.Nodes[0].Position - Descriptor.Nodes[prefab.Origin].Position;
+        prefabRotation = prefab.Nodes[0].Rotation.ToEuler() - MathEx.GetNodeRotation(Descriptor.Nodes[prefab.Origin].Direction).ToEuler();
+        rotationMatrix = Matrix4x4.CreateRotationY(prefabRotation.Y, prefab.Nodes[0].Position);
+    }
+
+    public int GetIndexForNode(Node node)
+    {
+        int index = Prefab.Nodes.IndexOf(node);
+        if (index == -1) throw new ArgumentException("Node is not part of this prefab");
+        return index;
+    }
+
+    public Node GetNodeInCommon(ParsedPrefab other)
+    {
+        foreach (var node in Prefab.Nodes)
+        {
+            if (other.Prefab.Nodes.Contains(node))
+                return (Node)node;
+        }
+        throw new ArgumentException("No common node between the two prefabs");
+    }
+
+    public Node GetNodeInCommon(ParsedRoad road)
+    {
+        foreach (var node in Prefab.Nodes)
+        {
+            if (node.Uid == road.StartNode.Uid || node.Uid == road.EndNode.Uid)
+                return (Node)node;
+        }
+        throw new ArgumentException("No common node between the prefab and the road");
+    }
+
+    public Node GetNodeMostInFront(Vector3 position, Quaternion rotation, List<Node>? ignoreNodes = null, bool inverted = false)
+    {
+        Vector3 forward = Vector3.Transform(Vector3.UnitZ, rotation);
+        Node? mostInFront = null;
+        float bestDot = inverted ? float.MaxValue : float.MinValue;
+        foreach (var node in Prefab.Nodes)
+        {
+            if (ignoreNodes != null && ignoreNodes.Contains(node)) continue;
+
+            Vector3 toNode = node.Position - position;
+            float dot = Math.Abs(Vector3.Dot(forward, toNode));
+            Logger.Info($"Node {node.Uid}: dot={dot}");
+            if ((inverted && dot < bestDot) || (!inverted && dot > bestDot))
+            {
+                Logger.Info($"Node {node.Uid} is now the most in front");
+                bestDot = dot;
+                mostInFront = (Node)node;
+            }
+        }
+        if (mostInFront == null) throw new ArgumentException("Prefab has no nodes");
+        return mostInFront;
+    }
+
+    private void TraverseCurveUntilTarget(NavCurve start, NavCurve target, HashSet<int> visited, List<NavCurve> path)
+    {
+        if (visited.Contains(start.GetHashCode())) return;
+        visited.Add(start.GetHashCode());
+        path.Add(start);
+
+        if (start == target) return;
+
+        List<int> nextCurveIds = start.PreviousLines.ToList().Concat(start.NextLines.ToList()).ToList();
+        foreach (var id in nextCurveIds)
+        {
+            NavCurve nextCurve = Descriptor.NavCurves[id];
+            if (visited.Contains(nextCurve.GetHashCode())) continue;
+
+            TraverseCurveUntilTarget(nextCurve, target, visited, path);
+            if (path.Last() == target) return;
+        }
+
+        path.RemoveAt(path.Count - 1);
+    }
+
+    private List<int> GetCurveIdsForControlNode(ControlNode node, Direction dir)
+    {
+        List<int> curveIds = dir == Direction.Forward ? node.OutputLines.ToList() : node.InputLines.ToList();
+        curveIds.RemoveAll(id => id == -1);
+        return curveIds;
+    }
+
+    public List<PrefabPath> GetPathsFromNodeToNode(Node startNode, Node endNode, out Direction dir)
+    {
+        int startIndex = GetIndexForNode(startNode);
+        int endIndex = GetIndexForNode(endNode);
+
+        Logger.Info($"Start Index: {startIndex}, End Index: {endIndex}");
+
+        // We extract the curve ids from Descriptor.ControlNode.Input/OutputLines
+        // These match Prefab.Nodes in indices, so we can easily get the start and end using them
+        List<int> startCurveIds;
+        List<int> endCurveIds;
+        
+        startCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[startIndex], Direction.Forward);
+        if (startCurveIds.Count == 0)
+        {
+            startCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[startIndex], Direction.Backward);
+            endCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[endIndex], Direction.Forward);
+            dir = Direction.Backward;
+        }
+        else
+        {
+            endCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[endIndex], Direction.Backward);
+            dir = Direction.Forward;
+        }
+
+        Logger.Info($"Start Curve IDs: {string.Join(", ", startCurveIds)}, End Curve IDs: {string.Join(", ", endCurveIds)}, Direction: {dir}");
+        Logger.Info($"Descriptor curve count: {Descriptor.NavCurves.Count}");
+
+        List<NavCurve> startCurves = startCurveIds.Select(id => Descriptor.NavCurves[id]).ToList();
+        List<NavCurve> endCurves = endCurveIds.Select(id => Descriptor.NavCurves[id]).ToList();
+
+        Logger.Info($"Start Curves: {startCurves.Count}, End Curves: {endCurves.Count}");
+
+        // Then those have to be traversed until we find a path that connects them. Here we 
+        // return them all since there can be multiple paths between the same nodes.
+        List<PrefabPath> paths = new List<PrefabPath>();
+        foreach (var startCurve in startCurves)
+        {
+            foreach (var endCurve in endCurves)
+            {
+                Logger.Info($"Finding path from curve {startCurve} to curve {endCurve}");
+                List<NavCurve> path = new List<NavCurve>();
+                TraverseCurveUntilTarget(startCurve, endCurve, new HashSet<int>(), path);
+                Logger.Info($"Path found with {path.Count} curves");
+                if (path.Count > 0 && path.Last() == endCurve)
+                {
+                    paths.Add(new PrefabPath(startNode, endNode, path, dir, rotationMatrix, prefabStart));
+                }
+            }
+        }
+
+        return paths;
     }
 }

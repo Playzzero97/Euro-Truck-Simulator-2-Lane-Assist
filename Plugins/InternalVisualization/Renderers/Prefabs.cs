@@ -72,6 +72,9 @@ public class PrefabsRenderer : Renderer
             Vector2 maxScreenPos = new Vector2(float.MinValue, float.MinValue);
             foreach (var curve in desc.NavCurves)
             {
+                Vector2 minCurveScreenPos = new Vector2(float.MaxValue, float.MaxValue);
+                Vector2 maxCurveScreenPos = new Vector2(float.MinValue, float.MinValue);
+
                 List<Vector3> curvePoints = new List<Vector3>();
                 float step = 1 / curve.Length / resolution;
                 for (float t = -step; t <= 1 + step; t += step)
@@ -91,15 +94,30 @@ public class PrefabsRenderer : Renderer
                 {
                     Vector2 screenPos = Utils.WorldToScreen(curvePoints[i], center.ToVector3(), windowSize) + windowPos;
                     Vector2 nextScreenPos = Utils.WorldToScreen(curvePoints[i + 1], center.ToVector3(), windowSize) + windowPos;
+
                     if (screenPos.X < minScreenPos.X) minScreenPos.X = screenPos.X;
                     if (screenPos.Y < minScreenPos.Y) minScreenPos.Y = screenPos.Y;
                     if (screenPos.X > maxScreenPos.X) maxScreenPos.X = screenPos.X;
                     if (screenPos.Y > maxScreenPos.Y) maxScreenPos.Y = screenPos.Y;
 
+                    if (screenPos.X < minCurveScreenPos.X) minCurveScreenPos.X = screenPos.X;
+                    if (screenPos.Y < minCurveScreenPos.Y) minCurveScreenPos.Y = screenPos.Y;
+                    if (screenPos.X > maxCurveScreenPos.X) maxCurveScreenPos.X = screenPos.X;
+                    if (screenPos.Y > maxCurveScreenPos.Y) maxCurveScreenPos.Y = screenPos.Y;
+
                     drawList.AddLine(screenPos, nextScreenPos, ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.4f, 1)), 2 * InternalVisualizationConstants.Scale);
                 }
-
             }
+
+            // Render control nodes
+            for(int i = 0; i < desc.Nodes.Count; i++)
+            {
+                Node node = (Node)prefab.Nodes[i];
+                Vector2 screenPos = Utils.WorldToScreen(node.Position, center.ToVector3(), windowSize) + windowPos;
+                drawList.AddCircleFilled(screenPos, 2 * InternalVisualizationConstants.Scale, ImGui.GetColorU32(new Vector4(1, 1, 1, 0.5f)));
+                drawList.AddText(screenPos + new Vector2(6, -6) * InternalVisualizationConstants.Scale, ImGui.GetColorU32(new Vector4(1, 1, 1, 0.5f)), i.ToString());
+            }
+
             if (ImGui.IsMouseHoveringRect(minScreenPos, maxScreenPos))
             {
                 ImGui.BeginTooltip();
@@ -113,7 +131,35 @@ public class PrefabsRenderer : Renderer
                 ImGui.Text($"UID:");
                 ImGui.SameLine();
                 ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), $"{prefab.Uid}");
-                ImGui.Unindent();
+                ImGui.Text($"Origin control node:");
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), $"{origin}");
+                ImGui.Indent();
+
+                // Render control nodes
+                for (int i = 0; i < desc.Nodes.Count; i++)
+                {
+                    ControlNode node = desc.Nodes[i];
+                    ImGui.Text($"ControlNode: {i}");
+                    ImGui.Indent();
+                    ImGui.Text($"Input lines:");
+                    ImGui.Indent();
+                    foreach(var line in node.InputLines)
+                    {
+                        if(line == -1) continue;
+                        ImGui.Text($"{line}");
+                    }
+                    ImGui.Unindent();
+                    ImGui.Text($"Output lines:");
+                    ImGui.Indent();
+                    foreach(var line in node.OutputLines)                    
+                    {
+                        if(line == -1) continue;
+                        ImGui.Text($"{line}");
+                    }
+                    ImGui.Unindent();
+                    ImGui.Unindent();
+                }
                 ImGui.Spacing();
                 ImGui.EndTooltip();
             }

@@ -69,7 +69,7 @@ public class ARRenderer
 
         thisFrameWidth = (int)OverlayHandler.Current.OverlayWidth;
         thisFrameHeight = (int)OverlayHandler.Current.OverlayHeight;
-        
+
         foreach (var callback in renderCallbacks)
         {
             try { callback.Render3D(); }
