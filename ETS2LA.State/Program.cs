@@ -37,6 +37,7 @@ public class ApplicationState
 {
     private static readonly Lazy<ApplicationState> _instance = new(() => new ApplicationState());
     public static ApplicationState Current => _instance.Value;
+    private bool shutdown = false;
 
     public ApplicationState()
     {
@@ -69,7 +70,11 @@ public class ApplicationState
         }
     }
 
-
+    public void Shutdown()
+    {
+        shutdown = true;
+    }
+    
 
     // MARK: Self-Driving Related
     // NOTE: This class is organized by *category* and not variable/function type.
@@ -261,7 +266,7 @@ public class ApplicationState
         if(parsingTask != null)
             return;
 
-        while (true)
+        while (!shutdown)
         {
             foreach(Installation install in GameHandler.Current.Installations)
             {

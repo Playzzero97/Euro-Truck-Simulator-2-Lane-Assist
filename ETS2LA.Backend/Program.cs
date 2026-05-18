@@ -57,7 +57,7 @@ namespace ETS2LA.Backend
             }
             ControlsBackend.Current.Shutdown();
             AudioHandler.Current.Shutdown();
-            Logger.Info("ETS2LA has been shut down.");
+            Logger.Info("Backend shutdown complete.");
         }
     }
 }

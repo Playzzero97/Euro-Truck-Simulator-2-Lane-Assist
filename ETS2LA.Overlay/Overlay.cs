@@ -37,23 +37,24 @@ public class OverlayHandler
 
     public ARRenderer AR;
 
-    private bool _isInteracting = false;
-    private float _bgOpacityTarget = 0.0f;
-    private List<float> _frameTimes = new List<float>();
+    private bool isInteracting = false;
+    private float bgOpacityTarget = 0.0f;
+    private bool shutdown = false;
+    private List<float> frameTimes = new List<float>();
     
-    private List<InternalWindow> _windows = new();
+    private List<InternalWindow> windows = new();
 
-    public bool IsOverlayFocused => _isInteracting;
-    public float AverageFrameTime => _frameTimes.Count > 0 ? _frameTimes.Average() : 0f;
+    public bool IsOverlayFocused => isInteracting;
+    public float AverageFrameTime => frameTimes.Count > 0 ? frameTimes.Average() : 0f;
 
     public float OverlayWidth => GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).Width;
     public float OverlayHeight => GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).Height;
 
     private string glslVersion = "#version 150";
-    private GLFWwindowPtr _window;
-    private ImGuiContextPtr _imGuiContext;
-    private ImGuiIOPtr _io;
-    private GL _gl;
+    private GLFWwindowPtr glfwWindow;
+    private ImGuiContextPtr imGuiContext;
+    private ImGuiIOPtr io;
+    private GL gl;
 
     public OverlayHandler()
     {
@@ -62,17 +63,17 @@ public class OverlayHandler
 
         Task.Run(() => RenderLoop());
         
-        _windows.Add(new ConsoleWindow());
-        _windows.Add(new OverlayInfoWindow());
-        _windows.Add(new DemoWindow());
-        _windows.Add(new StateWindow());
+        windows.Add(new ConsoleWindow());
+        windows.Add(new OverlayInfoWindow());
+        windows.Add(new DemoWindow());
+        windows.Add(new StateWindow());
     }
 
     private void HandleInput(object sender, ControlChangeEventArgs e)
     {
         bool b = (bool)e.NewValue;
-        if (b == _isInteracting) { return; }
-        _isInteracting = b;
+        if (b == isInteracting) { return; }
+        isInteracting = b;
     }
 
     private void RenderLoop()
@@ -82,8 +83,8 @@ public class OverlayHandler
             Logger.Error("Failed to initialize overlay");
             return;
         }
-        GLFW.MakeContextCurrent(_window);
-        _gl = new GL(new BindingsContext(_window));
+        GLFW.MakeContextCurrent(glfwWindow);
+        gl = new GL(new BindingsContext(glfwWindow));
         
         if (!InitImGui())
         {
@@ -97,13 +98,13 @@ public class OverlayHandler
         double next = fs.Elapsed.TotalMilliseconds;
         double start = fs.Elapsed.TotalMilliseconds;
 
-        while (GLFW.WindowShouldClose(_window) == 0)
+        while (GLFW.WindowShouldClose(glfwWindow) == 0 && !shutdown)
         {
             start = fs.Elapsed.TotalMilliseconds;
             next += interval;
 
             Stopwatch InteractionStopwatch = Stopwatch.StartNew();
-            if (!_isInteracting) 
+            if (!isInteracting) 
             { 
                 // This has to be called each frame to properly update the flags.
                 // For whatever reason they are set back to default. Shouldn't affect
@@ -111,17 +112,17 @@ public class OverlayHandler
                 ImGui.GetPlatformIO().Viewports[0].Flags |= ImGuiViewportFlags.NoInputs;
 
                 # if LINUX
-                GLFW.SetWindowAttrib(_window, GLFW.GLFW_MOUSE_PASSTHROUGH, 1);
+                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 1);
                 # endif
                 
-                _bgOpacityTarget = 0.0f;
+                bgOpacityTarget = 0.0f;
             }
             else 
             {
                 # if LINUX
-                GLFW.SetWindowAttrib(_window, GLFW.GLFW_MOUSE_PASSTHROUGH, 0);
+                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 0);
                 # endif
-                _bgOpacityTarget = 0.5f;
+                bgOpacityTarget = 0.5f;
             }
             InteractionStopwatch.Stop();
 
@@ -132,13 +133,13 @@ public class OverlayHandler
             Stopwatch NewFrameStopwatch = Stopwatch.StartNew();
             // Skip rendering if we're minimized, though this should actually
             // never happen for the overlay.
-            if (GLFW.GetWindowAttrib(_window, GLFW.GLFW_ICONIFIED) != 0)
+            if (GLFW.GetWindowAttrib(glfwWindow, GLFW.GLFW_ICONIFIED) != 0)
             {
                 ImGuiImplGLFW.Sleep(10);
                 continue;
             }
 
-            GLFW.MakeContextCurrent(_window);
+            GLFW.MakeContextCurrent(glfwWindow);
 
             ImGuiImplOpenGL3.NewFrame();
             ImGuiImplGLFW.NewFrame();
@@ -149,7 +150,7 @@ public class OverlayHandler
             // all other calls are just setup.
             Stopwatch ARStopwatch = Stopwatch.StartNew();
             try { 
-                if (AR == null) { AR = new ARRenderer(_gl); }
+                if (AR == null) { AR = new ARRenderer(gl); }
                 AR.Render(); 
             }
             catch (Exception ex) {
@@ -168,14 +169,14 @@ public class OverlayHandler
             Stopwatch RenderStopwatch = Stopwatch.StartNew();
             ImGui.Render();
 
-            _gl.ClearColor(0f, 0f, 0f, _bgOpacityTarget);
-            _gl.Clear(GLClearBufferMask.ColorBufferBit);
+            gl.ClearColor(0f, 0f, 0f, bgOpacityTarget);
+            gl.Clear(GLClearBufferMask.ColorBufferBit);
             
             ImGuiImplOpenGL3.RenderDrawData(ImGui.GetDrawData());
             RenderStopwatch.Stop();
 
             Stopwatch UpdatePlatformWindowsStopwatch = Stopwatch.StartNew();
-            if ((_io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
+            if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
             {
                 ImGui.UpdatePlatformWindows();
                 ImGui.RenderPlatformWindowsDefault();
@@ -184,7 +185,7 @@ public class OverlayHandler
 
             Stopwatch SwapBuffersStopwatch = Stopwatch.StartNew();
             GLFW.SwapInterval(0); // disable vsync
-            GLFW.SwapBuffers(_window);
+            GLFW.SwapBuffers(glfwWindow);
             SwapBuffersStopwatch.Stop();
 
             double remaining = next - fs.Elapsed.TotalMilliseconds;
@@ -195,8 +196,8 @@ public class OverlayHandler
             while (fs.Elapsed.TotalMilliseconds < next)
                 Thread.SpinWait(10);
             
-            _frameTimes.Add((float)(fs.Elapsed.TotalMilliseconds - start));
-            if (_frameTimes.Count > targetFramerate) { _frameTimes.RemoveAt(0); }
+            frameTimes.Add((float)(fs.Elapsed.TotalMilliseconds - start));
+            if (frameTimes.Count > targetFramerate) { frameTimes.RemoveAt(0); }
 
             // TODO: There are some lag spikes that can't be explained using the 
             // stopwatches in use here, where are those coming from?
@@ -214,23 +215,23 @@ public class OverlayHandler
         ImGuiImplGLFW.Shutdown();
         ImGuiImplGLFW.SetCurrentContext(null);
         ImGui.DestroyContext();
-        _gl.Dispose();
+        gl.Dispose();
 
         // Clean up and terminate GLFW
-        GLFW.DestroyWindow(_window);
+        GLFW.DestroyWindow(glfwWindow);
         GLFW.Terminate();
     }
 
     private void OnUIRender()
     {
-        if (_isInteracting)
+        if (isInteracting)
         {
             ImGui.Begin("Interaction Mode", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoBackground);
             ImGui.SetWindowPos(new Vector2(OverlayWidth / 2 - 60, 10), ImGuiCond.Always);
             ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "Interaction Mode");
 
             ImGui.Spacing();
-            foreach (var window in _windows) {
+            foreach (var window in windows) {
                 bool isOpen = window.IsWindowOpen;
                 Vector4 color = isOpen ? new Vector4(0.5f, 0.6f, 0.5f, 1f) : new Vector4(0.6f, 0.5f, 0.5f, 1f);
 
@@ -255,7 +256,7 @@ public class OverlayHandler
         ImGui.TextColored(new Vector4(1f,1f,1f,0.5f), $"{(int)(1/(AverageFrameTime / 1000f))}");
         ImGui.End();
 
-        foreach (InternalWindow window in _windows)
+        foreach (InternalWindow window in windows)
         {
             if (!window.IsWindowOpen) { continue; }
             if (window.Definition.NoWindow.GetValueOrDefault(false))
@@ -318,15 +319,15 @@ public class OverlayHandler
 
     private bool InitImGui()
     {
-        _imGuiContext = ImGui.CreateContext();
-        ImGui.SetCurrentContext(_imGuiContext);
+        imGuiContext = ImGui.CreateContext();
+        ImGui.SetCurrentContext(imGuiContext);
 
-        _io = ImGui.GetIO();
-        _io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;     // Enable Keyboard Controls
-        _io.ConfigFlags |= ImGuiConfigFlags.NavEnableGamepad;      // Enable Gamepad Controls
-        _io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;         // Enable Docking
+        io = ImGui.GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;     // Enable Keyboard Controls
+        io.ConfigFlags |= ImGuiConfigFlags.NavEnableGamepad;      // Enable Gamepad Controls
+        io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;         // Enable Docking
         // TODO: This is disabled for now as it causes submenus to appear below main windows.
-        //_io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
+        //io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
 
         var mon = GLFW.GetPrimaryMonitor();
         float mainScale = ImGuiImplGLFW.GetContentScaleForMonitor(Unsafe.BitCast<Hexa.NET.GLFW.GLFWmonitorPtr, Hexa.NET.ImGui.Backends.GLFW.GLFWmonitorPtr>(mon));
@@ -337,10 +338,10 @@ public class OverlayHandler
 
         style.ScaleAllSizes(mainScale);
         style.FontScaleDpi = mainScale;
-        _io.ConfigDpiScaleFonts = true;
-        _io.ConfigDpiScaleViewports = true;
+        io.ConfigDpiScaleFonts = true;
+        io.ConfigDpiScaleViewports = true;
 
-        if ((_io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
+        if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
         {
             style.WindowRounding = 0.0f;
         }
@@ -356,20 +357,20 @@ public class OverlayHandler
             }
             else
             {
-                _io.Fonts.AddFontFromFileTTF(fontPath);
+                io.Fonts.AddFontFromFileTTF(fontPath);
                 style.FontSizeBase = 18f;
             }
         }
 
-        ImGuiImplGLFW.SetCurrentContext(_imGuiContext);
-        if (!ImGuiImplGLFW.InitForOpenGL(Unsafe.BitCast<GLFWwindowPtr, Hexa.NET.ImGui.Backends.GLFW.GLFWwindowPtr>(_window), true))
+        ImGuiImplGLFW.SetCurrentContext(imGuiContext);
+        if (!ImGuiImplGLFW.InitForOpenGL(Unsafe.BitCast<GLFWwindowPtr, Hexa.NET.ImGui.Backends.GLFW.GLFWwindowPtr>(glfwWindow), true))
         {
             Logger.Error("Failed to init ImGui Impl GLFW");
             GLFW.Terminate();
             return false;
         }
 
-        ImGuiImplOpenGL3.SetCurrentContext(_imGuiContext);
+        ImGuiImplOpenGL3.SetCurrentContext(imGuiContext);
         if (!ImGuiImplOpenGL3.Init(glslVersion))
         {
             Logger.Error("Failed to init ImGui Impl OpenGL3");
@@ -377,9 +378,9 @@ public class OverlayHandler
             return false;
         }
 
-        _gl.Enable(GLEnableCap.Blend);
-        _gl.BlendFunc(GLBlendingFactor.SrcAlpha, GLBlendingFactor.OneMinusSrcAlpha);
-        _gl.ClearColor(0f, 0f, 0f, 0f); // Transparent background
+        gl.Enable(GLEnableCap.Blend);
+        gl.BlendFunc(GLBlendingFactor.SrcAlpha, GLBlendingFactor.OneMinusSrcAlpha);
+        gl.ClearColor(0f, 0f, 0f, 0f); // Transparent background
         return true;
     }
 
@@ -429,8 +430,8 @@ public class OverlayHandler
         // NOTE: Width and height set to screen-1
         // If they are set to the screen size, windows does some optimizations that cause the window
         // to go full black when focused. Setting these to -1 seems to prevent that.
-        _window = GLFW.CreateWindow(width-1, height-1, "ETS2LA overlay", null, null);
-        if (_window.IsNull)
+        glfwWindow = GLFW.CreateWindow(width-1, height-1, "ETS2LA overlay", null, null);
+        if (glfwWindow.IsNull)
         {
             Logger.Error("Failed to create GLFW window");
             GLFW.Terminate();
@@ -442,7 +443,7 @@ public class OverlayHandler
 
     public void RegisterWindow(WindowDefinition def, Action renderAction, Optional<Action> renderContextMenuAction = default)
     {
-        foreach (var window in _windows)
+        foreach (var window in windows)
         {
             if (window.Definition.Title == def.Title)
             {
@@ -454,11 +455,16 @@ public class OverlayHandler
         }
         
         var newWindow = new ExternalWindow(def, renderAction, renderContextMenuAction.GetValueOrDefault(() => { }));
-        _windows.Add(newWindow);
+        windows.Add(newWindow);
     }
 
     public void UnregisterWindow(WindowDefinition def)
     {
-        _windows.RemoveAll(w => w.Definition.Title == def.Title);
+        windows.RemoveAll(w => w.Definition.Title == def.Title);
+    }
+
+    public void Shutdown()
+    {
+        shutdown = true;
     }
 }

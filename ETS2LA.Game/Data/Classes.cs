@@ -8,6 +8,7 @@ using System.Numerics;
 using TruckLib.Models.Ppd;
 using ETS2LA.Settings.Global;
 using ETS2LA.Logging;
+using Avalonia.Controls.Embedding.Offscreen;
 
 namespace ETS2LA.Game.Data;
 
@@ -252,6 +253,48 @@ public class ParsedRoad : IParsedItem
     /// <returns>The total number of lanes on the road.</returns>
     public int GetTotalLaneCount() => LeftLaneOffsetsEnd.Length + RightLaneOffsetsEnd.Length;
 
+    /// <summary>
+    ///  Get the best lane for a specific position. Negative lanes indicate left-side lanes, while positives <br/>
+    ///  right side lanes. Each lane is from 1 to X (so -1, -2, -3 etc...)
+    /// </summary>
+    /// <param name="Position">The input position to check.</param>
+    /// <returns>The best lane for the given position.</returns>
+    public int GetBestLaneFor(Vector3 Position, bool inverted = false)
+    {
+        float closestFactor = GetFactorForPoint(Position);
+        if (inverted) closestFactor = 1 - closestFactor;
+
+        int closestLane = 0;
+        float closestLaneDistance = float.MaxValue;
+        for (int i = 0; i < GetLaneCount(Side.Left); i++)
+        {
+            OrientedPoint point = InterpolateLane(closestFactor, Side.Left, i);
+            float distance = Vector3.Distance(point.Position, Position);
+            Logger.Info($"Left lane {i + 1}: distance={distance}, position={point.Position}");
+            if (distance < closestLaneDistance)
+            {
+                closestLaneDistance = distance;
+                closestLane = -(i + 1);
+            }
+        }
+        for (int i = 0; i < GetLaneCount(Side.Right); i++)
+        {
+            OrientedPoint point = InterpolateLane(closestFactor, Side.Right, i);
+            float distance = Vector3.Distance(point.Position, Position);
+            Logger.Info($"Right lane {i + 1}: distance={distance}, position={point.Position}");
+            if (distance < closestLaneDistance)
+            {
+                closestLaneDistance = distance;
+                closestLane = i + 1;
+            }
+        }
+
+        if (closestLaneDistance > 4.5f * 3) // 3 lanes
+            closestLane = GetBestLaneFor(Position, true);
+
+        return closestLane;
+    }
+
     // The functions are all wrappers around the base Road functions.
     // They just take into account the last road's offset values, this way
     // we have accurate transitions between roads everywhere.
@@ -467,7 +510,10 @@ public class PrefabPath
         if (distance < 0 || distance > Length) throw new ArgumentOutOfRangeException(nameof(distance), "distance must be between 0 and path length");
     
         float distCovered = CurveDirection == Direction.Forward ? 0 : Length;
-        foreach (var curve in Curves)
+        IEnumerable<NavCurve> orientedCurves = Curves.AsEnumerable();
+        if (CurveDirection == Direction.Backward) orientedCurves = orientedCurves.Reverse();
+
+        foreach (var curve in orientedCurves)
         {
             if (
                 (CurveDirection == Direction.Forward && distCovered + curve.Length >= distance) ||
@@ -512,35 +558,48 @@ public class PrefabPath
     /// <param name="point">Point to project onto the path.</param>
     /// <returns>Factor from 0-1 along the path.</returns>
     public float GetFactorForPoint(Vector3 point)
-    {        
-        float closestDistance = float.MaxValue;
-        float closestDistAlongPath = 0;
-        float distCovered = 0;
+    {
+        if (Length <= 0) return 0;
 
-        foreach (var curve in Curves)
+        float minDistanceSq = float.MaxValue;
+        float closestDistAlongPath = 0;
+        float cumulativeDist = 0;
+
+        IEnumerable<NavCurve> curvesToConsider = Curves;
+        if (CurveDirection == Direction.Backward) curvesToConsider = curvesToConsider.Reverse();
+
+        foreach (var curve in curvesToConsider)
         {
             Vector3 startPos = Vector3.Transform(curve.StartPosition + prefabStart, rotationMatrix);
             Vector3 endPos = Vector3.Transform(curve.EndPosition + prefabStart, rotationMatrix);
 
-            Vector3 ab = endPos - startPos;
-            float lengthSquared = Vector3.Dot(ab, ab);
-            if (lengthSquared == 0) continue;
-
-            float distance = Vector3.Dot(point - startPos, ab);
-            float t = Vector3.Dot(point - startPos, ab) / lengthSquared;
-            t = Math.Clamp(t, 0, 1);
-
-            if (distance < closestDistance)
+            Vector3 line = endPos - startPos;
+            float lineLenSq = line.LengthSquared();
+            
+            float t = 0;
+            if (lineLenSq > 0)
             {
-                closestDistance = distance;
-                closestDistAlongPath = distCovered + t * curve.Length;
+                t = Vector3.Dot(point - startPos, line) / lineLenSq;
+                t = Math.Clamp(t, 0, 1);
             }
 
-            distCovered += curve.Length;
+            Vector3 closestPointOnSegment = startPos + (line * t);
+            float distSq = Vector3.DistanceSquared(point, closestPointOnSegment);
+
+            if (distSq < minDistanceSq)
+            {
+                minDistanceSq = distSq;
+
+                float curveT = (CurveDirection == Direction.Backward) ? (1 - t) : t;
+                closestDistAlongPath = cumulativeDist + (curveT * curve.Length);
+            }
+
+            cumulativeDist += curve.Length;
         }
 
-        float finalT = closestDistAlongPath / Length;
-        if (CurveDirection == Direction.Backward) finalT = 1 - finalT;
+        float finalT = Math.Clamp(closestDistAlongPath / Length, 0, 1);
+        if (CurveDirection == Direction.Backward)
+            finalT = 1 - finalT;
         return finalT;
     }
 }
@@ -564,11 +623,24 @@ public class ParsedPrefab : IParsedItem
         rotationMatrix = Matrix4x4.CreateRotationY(prefabRotation.Y, prefab.Nodes[0].Position);
     }
 
-    public int GetIndexForNode(Node node)
+    public ControlNode GetControlNodeForNode(Node node)
     {
         int index = Prefab.Nodes.IndexOf(node);
-        if (index == -1) throw new ArgumentException("Node is not part of this prefab");
-        return index;
+        int newIndex = index + Prefab.Origin;
+        if (newIndex >= Descriptor.Nodes.Count)
+            newIndex -= Descriptor.Nodes.Count;
+        
+        return Descriptor.Nodes[newIndex];
+    }
+
+    public Node GetNodeForControlNode(ControlNode node)
+    {
+        int index = Descriptor.Nodes.IndexOf(node);
+        int newIndex = index - Prefab.Origin;
+        if (newIndex < 0)
+            newIndex += Descriptor.Nodes.Count;
+        
+        return (Node)Prefab.Nodes[newIndex];
     }
 
     public Node GetNodeInCommon(ParsedPrefab other)
@@ -593,9 +665,11 @@ public class ParsedPrefab : IParsedItem
 
     public Node GetNodeMostInFront(Vector3 position, Quaternion rotation, List<Node>? ignoreNodes = null, bool inverted = false)
     {
-        Vector3 forward = Vector3.Transform(Vector3.UnitZ, rotation);
+        Logger.Info($"Finding most in front node at {position} rot: {rotation}. Inverted: {inverted}");
+        Vector3 forward = Vector3.Transform(Vector3.UnitX, rotation);
+        Logger.Info($"Forward vector: {forward}");
         Node? mostInFront = null;
-        float bestDot = inverted ? float.MaxValue : float.MinValue;
+        float bestDot = inverted ? float.MinValue : float.MaxValue;
         foreach (var node in Prefab.Nodes)
         {
             if (ignoreNodes != null && ignoreNodes.Contains(node)) continue;
@@ -603,7 +677,7 @@ public class ParsedPrefab : IParsedItem
             Vector3 toNode = node.Position - position;
             float dot = Math.Abs(Vector3.Dot(forward, toNode));
             Logger.Info($"Node {node.Uid}: dot={dot}");
-            if ((inverted && dot < bestDot) || (!inverted && dot > bestDot))
+            if ((!inverted && dot < bestDot) || (inverted && dot > bestDot))
             {
                 Logger.Info($"Node {node.Uid} is now the most in front");
                 bestDot = dot;
@@ -614,27 +688,6 @@ public class ParsedPrefab : IParsedItem
         return mostInFront;
     }
 
-    private void TraverseCurveUntilTarget(NavCurve start, NavCurve target, HashSet<int> visited, List<NavCurve> path)
-    {
-        if (visited.Contains(start.GetHashCode())) return;
-        visited.Add(start.GetHashCode());
-        path.Add(start);
-
-        if (start == target) return;
-
-        List<int> nextCurveIds = start.PreviousLines.ToList().Concat(start.NextLines.ToList()).ToList();
-        foreach (var id in nextCurveIds)
-        {
-            NavCurve nextCurve = Descriptor.NavCurves[id];
-            if (visited.Contains(nextCurve.GetHashCode())) continue;
-
-            TraverseCurveUntilTarget(nextCurve, target, visited, path);
-            if (path.Last() == target) return;
-        }
-
-        path.RemoveAt(path.Count - 1);
-    }
-
     private List<int> GetCurveIdsForControlNode(ControlNode node, Direction dir)
     {
         List<int> curveIds = dir == Direction.Forward ? node.OutputLines.ToList() : node.InputLines.ToList();
@@ -642,30 +695,84 @@ public class ParsedPrefab : IParsedItem
         return curveIds;
     }
 
-    public List<PrefabPath> GetPathsFromNodeToNode(Node startNode, Node endNode, out Direction dir)
+    private List<NavCurve> TraverseCurveUntilTarget(NavCurve start, NavCurve target)
     {
-        int startIndex = GetIndexForNode(startNode);
-        int endIndex = GetIndexForNode(endNode);
+        // If start and target are the same, return the simple path immediately
+        if (start == target) return new List<NavCurve> { start };
 
-        Logger.Info($"Start Index: {startIndex}, End Index: {endIndex}");
+        // Queue stores the next curves to explore
+        Queue<NavCurve> queue = new Queue<NavCurve>();
+        
+        // Dictionary tracks the parent of each visited curve to reconstruct the path later
+        // Key = Next Curve, Value = The Curve we came from
+        Dictionary<NavCurve, NavCurve> cameFrom = new Dictionary<NavCurve, NavCurve>();
+
+        queue.Enqueue(start);
+        cameFrom[start] = null; // Start has no parent
+
+        bool targetFound = false;
+
+        while (queue.Count > 0)
+        {
+            NavCurve current = queue.Dequeue();
+
+            if (current == target)
+            {
+                targetFound = true;
+                break;
+            }
+
+            // Combine previous and next lines
+            List<int> nextCurveIds = current.PreviousLines.Concat(current.NextLines).ToList();
+
+            foreach (var id in nextCurveIds)
+            {
+                NavCurve nextCurve = Descriptor.NavCurves[id];
+
+                // If we haven't visited this curve yet
+                if (!cameFrom.ContainsKey(nextCurve))
+                {
+                    cameFrom[nextCurve] = current;
+                    queue.Enqueue(nextCurve);
+                }
+            }
+        }
+
+        // If the target wasn't reachable, return an empty path
+        if (!targetFound) return new List<NavCurve>();
+
+        // Reconstruct the shortest path from target back to start
+        List<NavCurve> shortestPath = new List<NavCurve>();
+        NavCurve curr = target;
+        
+        while (curr != null)
+        {
+            shortestPath.Add(curr);
+            curr = cameFrom[curr];
+        }
+
+        // Reverse it so it goes from start -> target
+        shortestPath.Reverse();
+        return shortestPath;
+    }
+
+    public (List<PrefabPath>, List<PrefabPath>) GetPathsFromNodeToNode(Node startNode, Node endNode, Vector3 startPosition)
+    {
+        ControlNode startControlNode = GetControlNodeForNode(startNode);
+        ControlNode endControlNode = GetControlNodeForNode(endNode);
+
+        Logger.Info($"Finding paths from C.N. {Descriptor.Nodes.IndexOf(startControlNode)} to C.N. {Descriptor.Nodes.IndexOf(endControlNode)}");
 
         // We extract the curve ids from Descriptor.ControlNode.Input/OutputLines
         // These match Prefab.Nodes in indices, so we can easily get the start and end using them
-        List<int> startCurveIds;
-        List<int> endCurveIds;
+        List<int> startCurveIdsForward = GetCurveIdsForControlNode(startControlNode, Direction.Forward);
+        List<int> startCurveIdsBackward = GetCurveIdsForControlNode(startControlNode, Direction.Backward);
+        int bestCurve = GetClosestCurve(startPosition, startCurveIdsForward.Concat(startCurveIdsBackward).ToList());
         
-        startCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[startIndex], Direction.Forward);
-        if (startCurveIds.Count == 0)
-        {
-            startCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[startIndex], Direction.Backward);
-            endCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[endIndex], Direction.Forward);
-            dir = Direction.Backward;
-        }
-        else
-        {
-            endCurveIds = GetCurveIdsForControlNode(Descriptor.Nodes[endIndex], Direction.Backward);
-            dir = Direction.Forward;
-        }
+        Direction dir = startCurveIdsForward.Contains(bestCurve) ? Direction.Forward : Direction.Backward;
+        Direction other = dir == Direction.Forward ? Direction.Backward : Direction.Forward;
+        List<int> startCurveIds = dir == Direction.Forward ? startCurveIdsForward : startCurveIdsBackward;
+        List<int> endCurveIds = GetCurveIdsForControlNode(endControlNode, other);
 
         Logger.Info($"Start Curve IDs: {string.Join(", ", startCurveIds)}, End Curve IDs: {string.Join(", ", endCurveIds)}, Direction: {dir}");
         Logger.Info($"Descriptor curve count: {Descriptor.NavCurves.Count}");
@@ -683,8 +790,7 @@ public class ParsedPrefab : IParsedItem
             foreach (var endCurve in endCurves)
             {
                 Logger.Info($"Finding path from curve {startCurve} to curve {endCurve}");
-                List<NavCurve> path = new List<NavCurve>();
-                TraverseCurveUntilTarget(startCurve, endCurve, new HashSet<int>(), path);
+                List<NavCurve> path = TraverseCurveUntilTarget(startCurve, endCurve);
                 Logger.Info($"Path found with {path.Count} curves");
                 if (path.Count > 0 && path.Last() == endCurve)
                 {
@@ -693,6 +799,36 @@ public class ParsedPrefab : IParsedItem
             }
         }
 
-        return paths;
+        List<PrefabPath> bestPaths = paths.Where(p => p.Curves.First() == Descriptor.NavCurves[bestCurve]).ToList();
+        List<PrefabPath> otherPaths = paths.Where(p => p.Curves.First() != Descriptor.NavCurves[bestCurve]).ToList();
+        bestPaths = bestPaths.OrderBy(p => p.Length).ToList();
+        otherPaths = otherPaths.OrderBy(p => p.Length).ToList();
+
+        return (bestPaths, otherPaths);
+    }
+
+    public int GetClosestCurve(Vector3 position, List<int> curveIds)
+    {
+        int closestCurveId = -1;
+        float closestDistanceSq = float.MaxValue;
+
+        foreach (var curveId in curveIds)
+        {
+            NavCurve curve = Descriptor.NavCurves[curveId];
+            Vector3 startPos = Vector3.Transform(curve.StartPosition + prefabStart, rotationMatrix);
+            Vector3 endPos = Vector3.Transform(curve.EndPosition + prefabStart, rotationMatrix);
+
+            float startDist = Vector3.DistanceSquared(position, startPos);
+            float endDist = Vector3.DistanceSquared(position, endPos);
+            float bestDist = Math.Min(startDist, endDist);
+
+            if (bestDist < closestDistanceSq)
+            {
+                closestDistanceSq = bestDist;
+                closestCurveId = curveId;
+            }
+        }
+
+        return closestCurveId;
     }
 }

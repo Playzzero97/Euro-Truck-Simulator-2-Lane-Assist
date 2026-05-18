@@ -55,5 +55,8 @@ internal static class Program
         // and then tell the backend to shutdown too.
         UI.Program.Main(args);
         PluginBackend.Current.Shutdown();
+        OverlayHandler.Current.Shutdown();
+        GameTelemetry.Current.Shutdown();
+        ApplicationState.Current.Shutdown();
     }
 }

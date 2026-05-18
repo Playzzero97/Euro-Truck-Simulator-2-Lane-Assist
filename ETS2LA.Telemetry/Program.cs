@@ -27,6 +27,7 @@ public class GameTelemetry
     
     private MemoryReader? _reader;
     private GameTelemetryData? _currentData = new();
+    private bool shutdown = false;
     
 
     string mmapName = "Local\\SCSTelemetry";
@@ -96,7 +97,7 @@ public class GameTelemetry
         Stopwatch stopwatch = new Stopwatch();
         stopwatch.Start();
 
-        while (true)
+        while (!shutdown)
         {
             int timeLeft = (int)((UpdateRate * 1000) - stopwatch.Elapsed.TotalMilliseconds);
             if (timeLeft > 0)
@@ -505,5 +506,10 @@ public class GameTelemetry
 
         // Publish to the event bus
         Events.Current.Publish<GameTelemetryData>(EventString, _currentData);
+    }
+
+    public void Shutdown()
+    {
+        shutdown = true;
     }
 }
