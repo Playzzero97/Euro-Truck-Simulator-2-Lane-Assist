@@ -33,11 +33,19 @@
     </ProjectReference>
   </ItemGroup>
 
+  <Target Name="RemoveImGuiImplGLFWOnMac" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <Delete Files="$(OutputPath)runtimes/osx-arm64/native/ImGuiImplGLFW.dylib" />
+  </Target>
+
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(OS)' == 'Unix'">
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <DefineConstants>$(DefineConstants);MACOSX</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 </Project>

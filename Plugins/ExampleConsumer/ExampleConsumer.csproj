@@ -38,7 +38,7 @@
       <ProjectReference Include="..\..\TruckLib\TruckLib\TruckLib.csproj">
         <Private>false</Private>
       </ProjectReference>
-      <ProjectReference Include="..\..\ETS2LA.Overlay\ETS2LA.Overlay.csproj">
+       <ProjectReference Include="..\..\ETS2LA.Overlay\ETS2LA.Overlay.csproj">
         <Private>false</Private>
       </ProjectReference>
     </ItemGroup>

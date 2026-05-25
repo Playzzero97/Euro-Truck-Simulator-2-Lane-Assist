@@ -22,6 +22,8 @@ class SteamHandler
         #if WINDOWS
             string steamInstallFolder = Registry.GetValue(@"HKEY_CURRENT_USER\SOFTWARE\Valve\Steam", "SteamPath", null) as string ?? "C:\\Program Files (x86)\\Steam";
             return Path.Combine(steamInstallFolder, "steamapps", "libraryfolders.vdf");
+        #elif MACOSX
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Steam", "steamapps", "libraryfolders.vdf");
         #else
             return Path.Combine(Environment.GetEnvironmentVariable("HOME"), ".steam", "root", "steamapps", "libraryfolders.vdf");
         #endif
@@ -41,13 +43,13 @@ class SteamHandler
         List<string> libraryFolders = new();
         foreach (string line in File.ReadAllLines(vdfPath))
         {
-            # if WINDOWS
+           #if WINDOWS
                 if (line.Trim().StartsWith("\"") && line.Contains("\"path\""))
                 {
                     string path = line.Split('"')[3];
                     libraryFolders.Add(Path.Combine(path, "steamapps", "common"));
                 }
-            # else
+            #else
                 if (line.Contains("\"path\""))
                 {
                     string path = line.Split('"')[3];

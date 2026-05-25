@@ -10,7 +10,7 @@ using ETS2LA.State;
 namespace ETS2LA;
 
 internal static class Program
-{
+{   
     /// <summary>
     ///  Main entrypoint for ETS2LA.
     /// </summary>
@@ -30,7 +30,36 @@ internal static class Program
             #endif
             .Run();
 
-        var BackendThread = Task.Run(() =>
+        #if LINUX
+        string? useWayland = Environment.GetEnvironmentVariable("GLFW_USE_WAYLAND");
+        if (useWayland == null || useWayland == "0" || useWayland == "")
+        {
+            // This is to prevent GLFW from trying to use wayland. If wayland is still required
+            // then setting GLFW_USE_WAYLAND=1 should work fine.
+            Environment.SetEnvironmentVariable("GLFW_USE_WAYLAND", "0");
+            Environment.SetEnvironmentVariable("SDL_VIDEODRIVER", "x11");
+        }
+        #endif
+
+        #if MACOSX
+        var overlay = OverlayHandler.Current;
+        UI.Program.Main(args, afterSetup: () =>
+        {
+            _ = PluginBackend.Current;
+            _ = GameTelemetry.Current;
+            _ = ApplicationState.Current;
+
+            overlay.InitWindowOnMainThread();
+
+            var timer = new Avalonia.Threading.DispatcherTimer(
+                TimeSpan.FromMilliseconds(16),
+                Avalonia.Threading.DispatcherPriority.Render,
+                (_, _) => overlay.RenderFrame()
+            );
+            timer.Start();  
+        });
+        #else
+        Task.Run(() =>
         {
             // These initialize global instances, if there's a more "official" way to
             // do this then please make a PR for that.
@@ -39,21 +68,11 @@ internal static class Program
             var telemetry = GameTelemetry.Current;
             var state = ApplicationState.Current;
         });
-
-        # if LINUX
-            string? useWayland = Environment.GetEnvironmentVariable("GLFW_USE_WAYLAND");
-            if (useWayland == null || useWayland == "0" || useWayland == "")
-            {
-                // This is to prevent GLFW from trying to use wayland. If wayland is still required
-                // then setting GLFW_USE_WAYLAND=1 should work fine.
-                Environment.SetEnvironmentVariable("GLFW_USE_WAYLAND", "0");
-                Environment.SetEnvironmentVariable("SDL_VIDEODRIVER", "x11");
-            }
-        # endif
+        UI.Program.Main(args);
+        #endif
 
         // Gotta wait for the UI thread to close (i.e. user closed the window)
         // and then tell the backend to shutdown too.
-        UI.Program.Main(args);
         PluginBackend.Current.Shutdown();
         OverlayHandler.Current.Shutdown();
         GameTelemetry.Current.Shutdown();

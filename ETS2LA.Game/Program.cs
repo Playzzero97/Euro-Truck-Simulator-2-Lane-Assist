@@ -60,6 +60,12 @@ public class GameHandler
                     "win_x64", 
                     type == GameType.EuroTruckSimulator2 ? "eurotrucks2.exe" 
                                                          : "amtrucks.exe"
+                # elif MACOSX
+                    gamePath, 
+                    "bin", 
+                    "macOS",
+                    type == GameType.EuroTruckSimulator2 ? "eurotrucks2" 
+                                                         : "amtrucks"
                 # else
                     gamePath, 
                     "bin", 
@@ -75,6 +81,9 @@ public class GameHandler
                 #if WINDOWS
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), 
                     gameName
+                #elif MACOSX
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Library", "Application Support", gameName
                 #else
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".local", "share", gameName

@@ -10,6 +10,8 @@ namespace ETS2LA.UI;
 /// </summary>
 public partial class App : Application
 {
+    public static Action? OnMainThreadTick;  // set this from Program.cs
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -21,6 +23,11 @@ public partial class App : Application
         {
             desktop.MainWindow = new MainWindow();
         }
+
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            OnMainThreadTick?.Invoke();
+        }, Avalonia.Threading.DispatcherPriority.Render);
 
         base.OnFrameworkInitializationCompleted();
     }

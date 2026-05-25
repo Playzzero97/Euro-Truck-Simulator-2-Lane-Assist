@@ -28,7 +28,11 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(OS)' == 'Unix'">
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <DefineConstants>$(DefineConstants);MACOSX</DefineConstants>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 </Project>

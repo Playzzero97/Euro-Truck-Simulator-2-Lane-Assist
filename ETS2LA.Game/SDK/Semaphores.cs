@@ -63,6 +63,7 @@ public class SemaphoreProvider
 
     string mmapName = "Local\\ETS2LASemaphore";
     string mmapNameLinux = "/dev/shm/ETS2LASemaphore";
+    string mmapNameMacOS = "/tmp/ETS2LASemaphore";
     int mmapSize = 1920;
 
     public SemaphoreProvider()
@@ -112,6 +113,8 @@ public class SemaphoreProvider
         {
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
+            # elif MACOSX
+                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif

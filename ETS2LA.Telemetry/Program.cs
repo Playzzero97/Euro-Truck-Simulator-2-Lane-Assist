@@ -6,6 +6,8 @@ using ETS2LA.Logging;
 using System.IO.MemoryMappedFiles;
 using System.Numerics;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace ETS2LA.Telemetry;
 
@@ -13,6 +15,11 @@ public class GameTelemetry
 {
     private static readonly Lazy<GameTelemetry> _instance = new(() => new GameTelemetry());
     public static GameTelemetry Current => _instance.Value;
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int shm_open(string name, int oflag, int mode);
+
+    private const int O_RDONLY = 0;
 
     // There's no reason to *increase* this value as the game
     // only reports at a max of 60Hz anyway, but you can decrease it
@@ -29,9 +36,14 @@ public class GameTelemetry
     private GameTelemetryData? _currentData = new();
     private bool shutdown = false;
     
+    #if MACOSX
+    private IntPtr _telemetryPtr = IntPtr.Zero;
+    #endif
 
     string mmapName = "Local\\SCSTelemetry";
     string mmapNameLinux = "/dev/shm/SCSTelemetry";
+    string mmapNameMac = "/SCSTelemetry";
+
 
     int mmapSize = 32 * 1024;
     int stringSize = 64;
@@ -73,6 +85,51 @@ public class GameTelemetry
         };
     
         return gameName;
+    }
+
+    public static class MacScsShm
+    {
+        const int O_RDONLY = 0;
+        const int PROT_READ = 1;
+        const int MAP_SHARED = 0x0001;
+
+        [DllImport("libSystem.B.dylib", SetLastError = true)]
+        static extern int shm_open(string name, int oflag, int mode);
+
+        [DllImport("libSystem.B.dylib", SetLastError = true)]
+        static extern IntPtr mmap(
+            IntPtr addr,
+            ulong length,
+            int prot,
+            int flags,
+            int fd,
+            long offset);
+
+        [DllImport("libSystem.B.dylib")]
+        static extern int close(int fd);
+
+        public static IntPtr Map(string name, int size)
+        {
+            int fd = shm_open(name, O_RDONLY, 0);
+
+            if (fd < 0)
+                throw new Exception($"shm_open failed for {name}");
+
+            IntPtr ptr = mmap(
+                IntPtr.Zero,
+                (ulong)size,
+                PROT_READ,
+                MAP_SHARED,
+                fd,
+                0);
+
+            close(fd);
+
+            if (ptr == (IntPtr)(-1))
+                throw new Exception("mmap failed");
+
+            return ptr;
+        }
     }
 
     public GameTelemetry()
@@ -128,13 +185,19 @@ public class GameTelemetry
         {
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
-            # else
+            #elif MACOSX
+                if (_telemetryPtr == IntPtr.Zero || _telemetryPtr == (IntPtr)(-1))
+                    _telemetryPtr = MacScsShm.Map(mmapNameMac, 32768);
+                Marshal.Copy(_telemetryPtr, buffer, 0, mmapSize);
+            #else
                 mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif
             
+            #if !MACOSX
             accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
             accessor.ReadArray(0, buffer, 0, mmapSize);
-            _reader = new MemoryReader(buffer);
+            #endif
+              _reader = new MemoryReader(buffer);
         }
         catch (FileNotFoundException)
         {

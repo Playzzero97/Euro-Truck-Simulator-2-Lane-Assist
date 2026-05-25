@@ -26,8 +26,11 @@ public class Program
     }
 
     // Called from ETS2LA entrypoint.
-    public static void Main(string[] args)
+    public static void Main(string[] args, Action? afterSetup = null)
     {
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        var builder = BuildAvaloniaApp();
+        if (afterSetup != null)
+            builder = builder.AfterSetup(_ => afterSetup());
+        builder.StartWithClassicDesktopLifetime(args);
     }
 }

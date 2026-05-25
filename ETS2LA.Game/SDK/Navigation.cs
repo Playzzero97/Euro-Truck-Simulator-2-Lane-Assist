@@ -34,6 +34,7 @@ public class NavigationProvider
 
     string mmapName = "Local\\ETS2LARoute";
     string mmapNameLinux = "/dev/shm/ETS2LARoute";
+    string mmapNameMacOS = "/tmp/ETS2LARoute";
     int mmapSize = 96000;
 
     public NavigationProvider()
@@ -83,6 +84,8 @@ public class NavigationProvider
         {
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
+            # elif MACOSX
+                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif

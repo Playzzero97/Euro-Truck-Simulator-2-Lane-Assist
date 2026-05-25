@@ -52,6 +52,7 @@ public class CameraProvider
 
     string mmapName = "Local\\ETS2LACameraProps";
     string mmapNameLinux = "/dev/shm/ETS2LACameraProps";
+    string mmapNameMacOS = "/tmp/ETS2LACameraProps";
     int mmapSize = 128;
 
     public CameraProvider()
@@ -109,6 +110,8 @@ public class CameraProvider
         {
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
+            # elif MACOSX
+                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif

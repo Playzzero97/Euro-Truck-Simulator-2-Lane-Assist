@@ -2,7 +2,7 @@ using System.Collections;
 
 #if WINDOWS
 using ETS2LA.Controls.Windows;
-#elif LINUX
+#elif LINUX || MACOSX
 using ETS2LA.Controls.Linux;
 #endif
 
@@ -28,7 +28,7 @@ public class ControlsBackend : IControlsBackend
         }
         else
         {
-#if LINUX
+#if LINUX || MACOSX
             _backend = new SDL3ControlsBackend();
 #endif
         }
