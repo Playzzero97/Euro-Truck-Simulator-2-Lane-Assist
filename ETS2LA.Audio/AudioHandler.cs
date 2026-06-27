@@ -108,8 +108,7 @@ public class AudioHandler
             {
                 if (job.LoopCondition != null)
                 {
-                    var conditionMet = job.LoopCondition.Invoke();
-                    while (conditionMet && !_currentCts.Token.IsCancellationRequested)
+                    while (job.LoopCondition.Invoke() && !_currentCts.Token.IsCancellationRequested)
                     {
                         await PlaySound(job, _currentCts.Token);
                     }
@@ -140,18 +139,27 @@ public class AudioHandler
         if (token.IsCancellationRequested) return;
         Logger.Info($"Playing sound: {job.Filename}");
 
-        var dataProvider = new AssetDataProvider(engine, format, File.OpenRead(job.Filename));
-        var player = new SoundPlayer(engine, format, dataProvider);
+        using var stream = File.OpenRead(job.Filename);
+        using var dataProvider = new AssetDataProvider(engine, format, stream);
+        using var player = new SoundPlayer(engine, format, dataProvider);
 
         outputDevice.MasterMixer.AddComponent(player);
-        outputDevice.Start();
-
-        player.Volume = _settings.Volume;
-        player.Play();
-
-        while (!token.IsCancellationRequested && player.State == PlaybackState.Playing)
+        try
         {
-            await Task.Delay(100, token);
+            outputDevice.Start();
+
+            player.Volume = _settings.Volume;
+            player.Play();
+
+            while (!token.IsCancellationRequested && player.State == PlaybackState.Playing)
+            {
+                await Task.Delay(100, token);
+            }
+        }
+        finally
+        {
+            outputDevice.Stop();
+            outputDevice.MasterMixer.RemoveComponent(player);
         }
 
         outputDevice.Stop();

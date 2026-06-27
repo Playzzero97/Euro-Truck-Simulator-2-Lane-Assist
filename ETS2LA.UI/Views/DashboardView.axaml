@@ -18,93 +18,47 @@
                             </TextBlock>
                         </Grid>
 
-                        <husk:Divider/>
-
                         <WrapPanel ItemSpacing="16">
                             <StackPanel Spacing="4">
                                 <husk:Tag>
-                                    <TextBlock Text="Current Release" FontSize="12" FontWeight="450" />
+                                    <TextBlock Text="Current Release" FontSize="12" />
                                 </husk:Tag>
                                 <TextBlock Text="{Binding CurrentRelease}" FontSize="13" Margin="6 0 0 0"/>
                             </StackPanel>
                             <StackPanel Spacing="4">
                                 <husk:Tag>
-                                    <TextBlock Text="Users Online" FontSize="12" FontWeight="450" />
+                                    <TextBlock Text="Users Online" FontSize="12" />
                                 </husk:Tag>
-                                <TextBlock Text="{Binding UsersOnline}" FontSize="13" Margin="6 0 0 0"/>
+                                <TextBlock Text="-" FontSize="13" Margin="6 0 0 0"/>
                             </StackPanel>
                             <StackPanel Spacing="4">
                                 <husk:Tag>
-                                    <TextBlock Text="Users Over 24h" FontSize="12" FontWeight="450" />
+                                    <TextBlock Text="Users Over 24h" FontSize="12" />
                                 </husk:Tag>
-                                <TextBlock Text="{Binding UsersOver24h}" FontSize="13" Margin="6 0 0 0"/>
+                                <TextBlock Text="-" FontSize="13" Margin="6 0 0 0"/>
                             </StackPanel>
                         </WrapPanel>
                     </StackPanel>
                 </husk:Card>
-                <husk:Card>
-                    <Carousel Name="slides" >
-                        <Carousel.PageTransition >
-                            <CompositePageTransition>
-                                <PageSlide Duration="0:00:00.500" Orientation="Horizontal" />
-                            </CompositePageTransition>
-                        </Carousel.PageTransition>
-                        <Carousel.Items>
-                            <TextBlock Text="" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                        </Carousel.Items>
-                    </Carousel>
-                </husk:Card>
-            </UniformGrid>
+                <Border Padding="16">
 
-            <!-- Stats -->
-            <UniformGrid Columns="3" ColumnSpacing="14"
-                MaxWidth="{Binding Extent.Width, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
-                <husk:Card>
-                    <StackPanel Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <i:Icon Value="fa-chart-line" FontSize="15" />
-                            <TextBlock Text="Sessions" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        </StackPanel>
-                        <TextBlock Text="123 total - avg 4h56m" Classes="Description" FontSize="13"/>
-                    </StackPanel>
-                </husk:Card>
-                <husk:Card>
-                    <StackPanel Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <i:Icon Value="fa-clock" FontSize="15" />
-                            <TextBlock Text="Playtime" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        </StackPanel>
-                        <TextBlock Text="123h 45m total" Classes="Description" FontSize="13"/>
-                    </StackPanel>
-                </husk:Card>
-                <husk:Card>
-                    <StackPanel Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <i:Icon Value="fa-heart-circle-bolt" FontSize="15" />
-                            <TextBlock Text="Stability" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        </StackPanel>
-                        <TextBlock Text="1 crashes last 24h" Classes="Description" FontSize="13"/>
-                    </StackPanel>
-                </husk:Card>
+                </Border>
             </UniformGrid>
 
             <UniformGrid Columns="2" ColumnSpacing="14"
                 MaxWidth="{Binding Extent.Width, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
-                <husk:Card>
+                <husk:Card Padding="16">
                     <Grid RowDefinitions="Auto,*" RowSpacing="16">
                         <StackPanel Grid.Row="0" Spacing="4" VerticalAlignment="Top">
                             <TextBlock Text="Support &amp; Updates" FontSize="16" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock HorizontalAlignment="Stretch" Text="Follow development and get support. You can also donate to development via Ko-Fi, any kind of support is much appreciated!" Classes="Description" FontSize="13"/>
+                            <TextBlock HorizontalAlignment="Stretch" Text="Follow development and get support. Keep in mind that this version of ETS2LA is still in development. If you find bugs, please report them!" Classes="Description" FontSize="13"/>
                         </StackPanel>
                         <WrapPanel Grid.Row="1" ItemSpacing="8" VerticalAlignment="Bottom">
-                            <Button Content="Join Discord" />
-                            <Button Content="Open GitHub" />
-                            <Button Content="Ko-Fi" Classes="Primary" />
+                            <Button Content="Documentation" Click="OpenDocumentation" AutomationProperties.Name="Open the ETS2LA Documentation in Browser, button"/>
+                            <Button Content="GitHub" Click="OpenGitHub" AutomationProperties.Name="Open the ETS2LA GitHub in Browser, button"/>
+                            <Button Content="Discord" Click="OpenDiscord" AutomationProperties.Name="Open the ETS2LA Discord in Browser, button"/>
                         </WrapPanel>
                     </Grid>
-                </husk:Card>
-
-                <husk:Card>
                 </husk:Card>
             </UniformGrid>
         </StackPanel>

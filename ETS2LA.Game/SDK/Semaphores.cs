@@ -42,6 +42,43 @@ public class Semaphore
     public float time_remaining;
     public int state;
     public int id;
+
+    public Vector3 GetWorldCoordinates()
+    {
+        return position + new Vector3(cx, 0, cy) * 512;
+    }
+
+    public UInt32 GetColor()
+    {
+        if (type == SemaphoreType.TRAFFICLIGHT)
+        {
+            return state switch
+            {
+                (int)TrafficLightState.OFF =>           0x333333FF,
+                (int)TrafficLightState.ORANGETORED =>   0xFF9966FF,
+                (int)TrafficLightState.RED =>           0xFF6666FF,
+                (int)TrafficLightState.ORANGETOGREEN => 0xFF9966FF,
+                (int)TrafficLightState.GREEN =>         0x77EE77FF,
+                (int)TrafficLightState.SLEEP =>         0x333333FF,
+                _ => 0x333333FF,
+            };
+        }
+        else if (type == SemaphoreType.GATE)
+        {
+            return state switch
+            {
+                0 => 0xFF9966FF,
+                1 => 0xFF6666FF,
+                2 => 0xFF9966FF,
+                3 => 0x77EE77FF,
+                _ => 0x333333FF,
+            };
+        }
+        else
+        {
+            return 0x333333FF;
+        }
+    }
 }
 
 public class SemaphoreData
@@ -57,22 +94,35 @@ public class SemaphoreProvider
     private float UpdateRate { get; set; } = 1f / 60f;
     public string EventString = "ETS2LA.Game.SDK.Semaphore.Data";
 
-    private MemoryReader? _reader;
+    private MemoryReader _reader;
     private SemaphoreData? _currentData = new();
-    
+
 
     string mmapName = "Local\\ETS2LASemaphore";
     string mmapNameLinux = "/dev/shm/ETS2LASemaphore";
     string mmapNameMacOS = "/tmp/ETS2LASemaphore";
     int mmapSize = 1920;
 
+    private MemoryMappedFile? _mmf;
+    private MemoryMappedViewAccessor? _accessor;
+    private byte[] _buffer = Array.Empty<byte>();
+    private readonly Stopwatch _sinceReconnect = Stopwatch.StartNew();
+
     public SemaphoreProvider()
     {
+        _buffer = new byte[mmapSize];
+        _reader = new MemoryReader(_buffer);
+
         Thread updateThread = new Thread(UpdateThread)
         {
             IsBackground = true
         };
         updateThread.Start();
+    }
+
+    public SemaphoreData? GetCurrentData()
+    {
+        return _currentData;
     }
 
     private void UpdateThread()
@@ -98,6 +148,47 @@ public class SemaphoreProvider
         }
     }
     
+    private bool TryOpenMemory()
+    {
+        if (_accessor != null)
+            return true;
+
+        try
+        {
+            #if WINDOWS
+                _mmf = MemoryMappedFile.OpenExisting(mmapName);
+            # elif MACOSX
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
+            # else
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
+            # endif
+
+            _accessor = _mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            CloseMemory();
+            Thread.Sleep(10000);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CloseMemory();
+            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Thread.Sleep(10000);
+            return false;
+        }
+    }
+
+    private void CloseMemory()
+    {
+        _accessor?.Dispose();
+        _accessor = null;
+        _mmf?.Dispose();
+        _mmf = null;
+    }
+
     private void Update()
     {
         if (_currentData == null)
@@ -105,41 +196,18 @@ public class SemaphoreProvider
             _currentData = new SemaphoreData();
         }
 
-        MemoryMappedFile? mmf = null;
-        MemoryMappedViewAccessor? accessor = null;
-        byte[] buffer = new byte[mmapSize];
+        if (!TryOpenMemory())
+            return;
 
         try
         {
-            #if WINDOWS
-                mmf = MemoryMappedFile.OpenExisting(mmapName);
-            # elif MACOSX
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
-            # else
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
-            # endif
-
-            accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
-            accessor.ReadArray(0, buffer, 0, mmapSize);
-            _reader = new MemoryReader(buffer);
+            _accessor!.ReadArray(0, _buffer, 0, mmapSize);
         }
-        catch (FileNotFoundException)
+        catch (Exception)
         {
-            Thread.Sleep(10000);
-            _reader = null;
+            // Mapping went away (e.g. game closed), reconnect on the next update.
+            CloseMemory();
             return;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
-            Thread.Sleep(10000);
-            _reader = null;
-            return;
-        }
-        finally
-        {
-            accessor?.Dispose();
-            mmf?.Dispose();
         }
 
         List<Semaphore> semaphores = new List<Semaphore>();
@@ -172,7 +240,14 @@ public class SemaphoreProvider
         }
 
         _currentData.semaphores = semaphores.ToArray();
-        
+
         Events.Current.Publish<SemaphoreData>(EventString, _currentData);
+
+        // Periodically reopen the mmap to detect game restarts.
+        if (_sinceReconnect.Elapsed.TotalSeconds > 1.0)
+        {
+            CloseMemory();
+            _sinceReconnect.Restart();
+        }
     }
 }

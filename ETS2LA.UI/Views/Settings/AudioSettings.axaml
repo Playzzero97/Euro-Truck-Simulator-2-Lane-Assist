@@ -9,7 +9,7 @@
                 <TextBlock Text="Audio Volume" />
                 <TextBlock Text="{Binding ElementName=VolumeSlider, Path=Value, StringFormat='{}{0:0}%'}" />
             </StackPanel>
-            <Slider Name="VolumeSlider" Minimum="0" Maximum="100" ValueChanged="OnVolumeChanged" />
+            <Slider Name="VolumeSlider" Minimum="0" Maximum="100" ValueChanged="OnVolumeChanged" AutomationProperties.Name="Current volume"/>
         </StackPanel>
     </Grid>
 </UserControl>

@@ -37,6 +37,12 @@ public class NotificationHandler
 
     public void SendNotification(Notification notification)
     {
+        if (ActiveNotifications.Any(x => x.Id == notification.Id))
+        {
+            UpdateNotification(notification);
+            return;
+        }
+
         ActiveNotifications.Add(notification);
         OnNotificationAdded?.Invoke(this, notification);
     }

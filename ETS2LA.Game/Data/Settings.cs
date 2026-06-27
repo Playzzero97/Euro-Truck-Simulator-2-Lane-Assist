@@ -22,6 +22,7 @@ public class DataSettings
 {
     public DataFidelity DataFidelity { get; set; } = DataFidelity.Medium;
     public CurveQuality CurveQuality { get; set; } = CurveQuality.MatchGame;
+    public bool ForceBaseMapName { get; set; } = false;
 
     [NonSerialized]
     private static readonly Lazy<DataSettings> _instance = new(() => new DataSettings(loadSettings: true));
@@ -40,6 +41,7 @@ public class DataSettings
             {
                 DataFidelity = loadedSettings.DataFidelity;
                 CurveQuality = loadedSettings.CurveQuality;
+                ForceBaseMapName = loadedSettings.ForceBaseMapName;
             }
             _settingsHandler.RegisterListener<DataSettings>("DataSettings.json", OnSettingsChanged);
         }
@@ -56,5 +58,6 @@ public class DataSettings
     {
         DataFidelity = newSettings.DataFidelity;
         CurveQuality = newSettings.CurveQuality;
+        ForceBaseMapName = newSettings.ForceBaseMapName;
     }
 }

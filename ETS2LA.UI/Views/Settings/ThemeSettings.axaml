@@ -7,13 +7,13 @@
     <Grid ColumnDefinitions="300,*">
         <StackPanel Grid.Column="0" Spacing="12" Margin="20">
             <TextBlock Text="Color Theme" />
-            <ComboBox Name="ThemeCombobox" SelectedIndex="0" SelectionChanged="OnThemeChanged">
+            <ComboBox Name="ThemeCombobox" SelectedIndex="0" SelectionChanged="OnThemeChanged" AutomationProperties.Name="Window Theme">
                 <ComboBoxItem Content="System" />
                 <ComboBoxItem Content="Light" />
                 <ComboBoxItem Content="Dark" />
             </ComboBox>
             <TextBlock Text="Accent Color" />
-            <ComboBox Name="AccentColorCombobox" SelectedIndex="20" SelectionChanged="OnAccentColorChanged">
+            <ComboBox Name="AccentColorCombobox" SelectedIndex="20" SelectionChanged="OnAccentColorChanged" AutomationProperties.Name="Window Accent Color">
                 <ComboBoxItem Content="System" />
                 <ComboBoxItem Content="Neutral" />
                 <ComboBoxItem Content="Tomato" />

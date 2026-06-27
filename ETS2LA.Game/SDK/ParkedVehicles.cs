@@ -5,38 +5,13 @@ using ETS2LA.Backend.Events;
 using System.Numerics;
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
-using TruckLib;
 
 namespace ETS2LA.Game.SDK;
 
-public class ParkedVehicle
+public class ParkedVehicle : BaseVehicle
 {
-    public Vector3 position;
-    public Quaternion rotation;
-    public Vector3 size;
     public int id;
     public bool isTrailer;
-
-    public List<Vector3> GetCornersOnGround()
-    {
-        List<Vector3> corners = new List<Vector3>();
-        Vector3 halfSize = size / 2;
-
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
-
-        Quaternion invQuat = Quaternion.Conjugate(rotation);
-        Vector3 euler = invQuat.ToEuler();
-        Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + (float)Math.PI, -euler.Z + (float)Math.PI, -euler.X);
-        for (int i = 0; i < corners.Count; i++)
-        {
-            corners[i] = Vector3.Transform(corners[i] - position, filteredRot) + position;
-        }
-
-        return corners;
-    }
 }
 
 public class ParkedVehicleData
@@ -52,21 +27,33 @@ public class ParkedVehiclesProvider
     private float UpdateRate { get; set; } = 1f / 60f;
     public string EventString = "ETS2LA.Game.SDK.ParkedVehicles.Data";
 
-    private MemoryReader? _reader;
+    private MemoryReader _reader;
     private ParkedVehicleData? _currentData;
 
     string mmapName = "Local\\ETS2LAParkedVehicles";
     string mmapNameLinux = "/dev/shm/ETS2LAParkedVehicles";
-    string mmapNameMacOS = "/tmp/ETS2LAParkedVehicles";
     int mmapSize = 1720;
+
+    private MemoryMappedFile? _mmf;
+    private MemoryMappedViewAccessor? _accessor;
+    private byte[] _buffer = Array.Empty<byte>();
+    private readonly Stopwatch _sinceReconnect = Stopwatch.StartNew();
 
     public ParkedVehiclesProvider()
     {
+        _buffer = new byte[mmapSize];
+        _reader = new MemoryReader(_buffer);
+
         Thread updateThread = new Thread(UpdateThread)
         {
             IsBackground = true
         };
         updateThread.Start();
+    }
+
+    public ParkedVehicleData? GetCurrentParkedVehicleData()
+    {
+        return _currentData;
     }
 
     private void UpdateThread()
@@ -87,11 +74,50 @@ public class ParkedVehiclesProvider
             try { Update(); }
             catch (Exception ex)
             {
-                Logger.Error(ex.ToString(), "Error in camera update loop.");
+                Logger.Error(ex.ToString(), "Error in parked vehicles update loop.");
             }
         }
     }
     
+    private bool TryOpenMemory()
+    {
+        if (_accessor != null)
+            return true;
+
+        try
+        {
+            #if WINDOWS
+                _mmf = MemoryMappedFile.OpenExisting(mmapName);
+            # else
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
+            # endif
+
+            _accessor = _mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            CloseMemory();
+            Thread.Sleep(10000);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CloseMemory();
+            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Thread.Sleep(10000);
+            return false;
+        }
+    }
+
+    private void CloseMemory()
+    {
+        _accessor?.Dispose();
+        _accessor = null;
+        _mmf?.Dispose();
+        _mmf = null;
+    }
+
     private void Update()
     {
         if (_currentData == null)
@@ -99,41 +125,18 @@ public class ParkedVehiclesProvider
             _currentData = new ParkedVehicleData{ vehicles = new List<ParkedVehicle>() };
         }
 
-        MemoryMappedFile? mmf = null;
-        MemoryMappedViewAccessor? accessor = null;
-        byte[] buffer = new byte[mmapSize];
+        if (!TryOpenMemory())
+            return;
 
         try
         {
-            #if WINDOWS
-                mmf = MemoryMappedFile.OpenExisting(mmapName);
-            #elif MACOSX
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
-            # else
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
-            # endif
-
-            accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
-            accessor.ReadArray(0, buffer, 0, mmapSize);
-            _reader = new MemoryReader(buffer);
+            _accessor!.ReadArray(0, _buffer, 0, mmapSize);
         }
-        catch (FileNotFoundException)
+        catch (Exception)
         {
-            Thread.Sleep(10000);
-            _reader = null;
+            // Mapping went away (e.g. game closed), reconnect on the next update.
+            CloseMemory();
             return;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
-            Thread.Sleep(10000);
-            _reader = null;
-            return;
-        }
-        finally
-        {
-            accessor?.Dispose();
-            mmf?.Dispose();
         }
 
         List<ParkedVehicle> vehicles = new List<ParkedVehicle>();
@@ -141,18 +144,18 @@ public class ParkedVehiclesProvider
         for (int i = 0; i < 40; i++)
         {
             ParkedVehicle vehicle = new ParkedVehicle();
-            vehicle.position = new Vector3(
+            vehicle.Position = new Vector3(
                 _reader.ReadFloat(offset),
                 _reader.ReadFloat(offset + 4),
                 _reader.ReadFloat(offset + 8)
             ); offset += 12;
-            vehicle.rotation = new Quaternion(
+            vehicle.Rotation = new Quaternion(
                 _reader.ReadFloat(offset),
                 _reader.ReadFloat(offset + 4),
                 _reader.ReadFloat(offset + 8),
                 _reader.ReadFloat(offset + 12)
             ); offset += 16;
-            vehicle.size = new Vector3(
+            vehicle.Size = new Vector3(
                 _reader.ReadFloat(offset),
                 _reader.ReadFloat(offset + 4),
                 _reader.ReadFloat(offset + 8)
@@ -165,5 +168,12 @@ public class ParkedVehiclesProvider
 
         _currentData.vehicles = vehicles;
         Events.Current.Publish<ParkedVehicleData>(EventString, _currentData);
+
+        // Periodically reopen the mmap to detect game restarts.
+        if (_sinceReconnect.Elapsed.TotalSeconds > 1.0)
+        {
+            CloseMemory();
+            _sinceReconnect.Restart();
+        }
     }
 }

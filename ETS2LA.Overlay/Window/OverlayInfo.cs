@@ -11,8 +11,10 @@ class OverlayInfoWindow : InternalWindow
         Definition = new WindowDefinition
         {
             Title = "Overlay Info",
-            Flags = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings,
+            Flags = ImGuiWindowFlags.AlwaysAutoResize,
         };
+
+        IsWindowOpen = false;
 
         Render = () =>
         {
@@ -25,10 +27,14 @@ class OverlayInfoWindow : InternalWindow
             ImGui.SameLine();
             var controls = ControlsBackend.Current.GetRegisteredControls();        
             var interactKey = controls.FirstOrDefault(c => c.Definition.Id == OverlayHandler.Current.Interact.Id);
+
+            ImGui.PushFont(OverlayHandler.Current.Fonts[FontStyle.Bold], 18f);
             if (interactKey != null)
                 ImGui.TextColored(new Vector4(1f, 0.5f, 0.5f, 1f), interactKey.ControlId.ToString());
             else 
                 ImGui.TextColored(new Vector4(1f, 0.5f, 0.5f, 1f), "UNBOUND");
+            ImGui.PopFont();
+            
             ImGui.SameLine();
             ImGui.Text("(can be changed in the settings!)");
             ImGui.Text("The overlay is pretty much a full window system, there shouldn't be any crashes... hopefully... but if there are, report them!");

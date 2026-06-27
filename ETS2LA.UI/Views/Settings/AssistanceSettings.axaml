@@ -32,15 +32,39 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding SetSpeedBehaviourOptions}" 
                         SelectedIndex="{Binding SelectedSetSpeedBehaviourOption}" 
-                        SelectionChanged="OnSetSpeedBehaviourChanged">
+                        SelectionChanged="OnSetSpeedBehaviourChanged"
+                        AutomationProperties.Name="SET Keybind Behaviour">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="115" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="115" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>
                     </TabStrip.ItemTemplate>
                 </TabStrip>
+            </StackPanel>
+
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*, Auto">
+                    <TextBlock Text="{Binding SnapTo10UnitsDisplay}" VerticalAlignment="Center" />
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding SnapTo10Units}" Classes="primary-toggle" AutomationProperties.Name="Snap ACC to 10 units" />
+                </Grid>
+                <TextBlock Text="When changing the speed, snap to the nearest 10 units. i.e. 37 -> 39 -> 40 -> 42..." FontSize="12" Classes="Description" />
+            </StackPanel>
+
+            <StackPanel Spacing="12">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Speed Control Step Size" />
+                    <TextBlock Text="{Binding SpeedControlDisplay}" />
+                </StackPanel>
+                <Slider Name="SpeedControlStepSizeSlider" Minimum="1" Maximum="5" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding SpeedControlStepSize}" AutomationProperties.Name="ACC speed control step size" />
             </StackPanel>
 
             <Separator />
@@ -52,10 +76,18 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding SteeringSensitivityOptions}" 
                         SelectedIndex="{Binding SelectedSteeringSensitivityOption}" 
-                        SelectionChanged="OnSteeringSensitivityChanged">
+                        SelectionChanged="OnSteeringSensitivityChanged"
+                        AutomationProperties.Name="Steering response">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>
@@ -70,10 +102,18 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding AccelerationOptions}" 
                         SelectedIndex="{Binding SelectedAccelerationOption}"
-                        SelectionChanged="OnAccelerationOptionChanged">
+                        SelectionChanged="OnAccelerationOptionChanged"
+                        AutomationProperties.Name="Acceleration response">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>
@@ -88,10 +128,18 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding FollowingDistanceOptions}" 
                         SelectedIndex="{Binding SelectedFollowingDistanceOption}" 
-                        SelectionChanged="OnFollowingDistanceChanged">
+                        SelectionChanged="OnFollowingDistanceChanged"
+                        AutomationProperties.Name="Following distance">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>
@@ -108,10 +156,18 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding SpeedLimitWarningOptions}" 
                         SelectedIndex="{Binding SelectedSpeedLimitWarningOption}"
-                        SelectionChanged="OnSpeedLimitWarningChanged">
+                        SelectionChanged="OnSpeedLimitWarningChanged"
+                        AutomationProperties.Name="Speedlimit warning style">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>
@@ -126,10 +182,18 @@
                 </StackPanel>
                 <TabStrip ItemsSource="{Binding CollisionAvoidanceOptions}" 
                         SelectedIndex="{Binding SelectedCollisionAvoidanceOption}" 
-                        SelectionChanged="OnCollisionAvoidanceChanged">
+                        SelectionChanged="OnCollisionAvoidanceChanged"
+                        AutomationProperties.Name="Collision avoidance distance">
+
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem" x:DataType="views:TabStripItemHandler">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </TabStrip.Styles>
+
                     <TabStrip.ItemTemplate>
                         <DataTemplate x:DataType="views:TabStripItemHandler">
-                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Border Width="70" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="{Binding AutomationName}">
                                 <TextBlock Text="{Binding Header}" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Border>
                         </DataTemplate>

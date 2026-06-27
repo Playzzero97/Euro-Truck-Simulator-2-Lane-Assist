@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Huskui.Avalonia.Models;
 
 using ETS2LA.Shared;
-using ETS2LA.Backend.Updates;
+using ETS2LA.Networking.Updates;
 using ETS2LA.Notifications;
 
 using Velopack;
@@ -43,7 +43,13 @@ public partial class Updates : UserControl, INotifyPropertyChanged
             return "No release notes available.";
         }
 
-        return LatestUpdateInfo.TargetFullRelease.NotesMarkdown;
+        string notes = LatestUpdateInfo.TargetFullRelease.NotesMarkdown;
+        
+        // Remove GitHub only section if present
+        try { notes = notes.Split("---")[0]; }
+        catch { }
+
+        return notes;
     }
 
     public void OnCheckForUpdatesClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

@@ -1,3 +1,4 @@
+using ETS2LA.Logging;
 using ETS2LA.Shared;
 
 namespace ETS2LA.Backend.Events
@@ -11,34 +12,59 @@ namespace ETS2LA.Backend.Events
         public static Events Current => _instance.Value;
 
         private static readonly Dictionary<string, List<Delegate>> _subscribers = new();
+        private static readonly object _lock = new();
 
         public void Subscribe<T>(string topic, Action<T> handler)
         {
-            if (!_subscribers.ContainsKey(topic))
+            lock (_lock)
             {
-                _subscribers[topic] = new List<Delegate>();
+                if (!_subscribers.TryGetValue(topic, out var handlers))
+                {
+                    handlers = new List<Delegate>();
+                    _subscribers[topic] = handlers;
+                }
+                handlers.Add(handler);
             }
-            _subscribers[topic].Add(handler);
         }
 
         public void Unsubscribe<T>(string topic, Action<T> handler)
         {
-            if (_subscribers.ContainsKey(topic))
+            lock (_lock)
             {
-                _subscribers[topic].Remove(handler);
+                if (_subscribers.TryGetValue(topic, out var handlers))
+                {
+                    handlers.Remove(handler);
+                }
             }
         }
 
         public void Publish<T>(string topic, T data)
         {
-            if (_subscribers.ContainsKey(topic))
+            Delegate[] handlers;
+            lock (_lock)
             {
-                foreach (var handler in _subscribers[topic])
+                if (!_subscribers.TryGetValue(topic, out var list) || list.Count == 0)
+                {
+                    return;
+                }
+                handlers = list.ToArray();
+            }
+
+            foreach (var handler in handlers)
+            {
+                try
                 {
                     if (handler is Action<T> action)
                     {
-                        action.Invoke(data);
+                        action(data);
                     }
+                    else
+                    {
+                        handler.DynamicInvoke(data);
+                    }
+                } catch (Exception ex)
+                {
+                    Logger.Error($"Error while publishing event on topic '{topic}': {ex}");
                 }
             }
         }

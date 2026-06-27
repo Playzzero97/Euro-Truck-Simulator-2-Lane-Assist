@@ -3,7 +3,7 @@ using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
-using ETS2LA.Shared;
+using ETS2LA.Backend.Events;
 using ETS2LA.UI.Views;
 using ETS2LA.UI.Services;
 using ETS2LA.UI.Notifications;
@@ -27,7 +27,6 @@ public partial class MainWindow : AppWindow
         Performance,
         Wiki,
         Roadmap,
-        Feedback,
         Settings
     }
 
@@ -35,15 +34,9 @@ public partial class MainWindow : AppWindow
     private readonly PluginManagerService pluginService;
     private readonly DashboardView dashboardView = new();
     private readonly ManagerView managerView;
+    private readonly CatalogueView catalogueView;
     private readonly SettingsView settingsView;
     public static event EventHandler? WindowOpened;
-
-    # if WINDOWS
-    private readonly VisualizationView? visualizationView;
-    # else
-    private readonly UserControl? visualizationView = null;
-    # endif
-    
 
     public MainWindow()
     {
@@ -51,21 +44,27 @@ public partial class MainWindow : AppWindow
         ExtendClientAreaToDecorationsHint = true;
         InitializeComponent();
 
-        VersionText.Text = $"v{System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)}";
-
-        UINotificationHandler.Current.SetWindow(this);
-
-        # if WINDOWS
-        visualizationView = new VisualizationView();
+        // Linux distros don't add their own window borders. To match windows' appearance
+        // we need to add those ourselves.
+        # if LINUX
+            MainBorder.BorderThickness = new Avalonia.Thickness(1);
+            MainBorder.CornerRadius = new Avalonia.CornerRadius(4);
+            MainBorder.ClipToBounds = true;
+            DragCorner.IsVisible = true; // Linux systems don't support BorderOnly resizing
+                                         // so we need to add our own drag corner.
         # endif
+
+        VersionText.Text = $"v{System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)}";
+        UINotificationHandler.Current.SetWindow(this);
 
         pluginService = new PluginManagerService();
         managerView = new ManagerView(pluginService);
+        catalogueView = new CatalogueView();
         settingsView = new SettingsView();
         navButtons.AddRange(new[]
         {
             DashboardButton, VisualizationButton, ManagerButton, CatalogueButton,
-            PerformanceButton, WikiButton, RoadmapButton, FeedbackButton, SettingsButton
+            PerformanceButton, WikiButton, RoadmapButton, SettingsButton
         });
 
         UpdateTitlebarButtonVisibility();
@@ -77,6 +76,7 @@ public partial class MainWindow : AppWindow
         Height = settings.WindowHeight;
         Position = new Avalonia.PixelPoint(settings.WindowX, settings.WindowY);
 
+        Opened += (s, e) => Events.Current.Publish("ETS2LA.UI.WindowOpened", e);
         Opened += (s, e) => WindowOpened?.Invoke(this, e);
     }
 
@@ -84,6 +84,12 @@ public partial class MainWindow : AppWindow
     {
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             BeginMoveDrag(e);
+    }
+
+    private void OnDragCornerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginResizeDrag(WindowEdge.SouthEast, e);
     }
 
     private void OnStayOnTopClick(object? sender, RoutedEventArgs e)
@@ -181,6 +187,7 @@ public partial class MainWindow : AppWindow
     {
         MainSplitView.IsPaneOpen = !MainSplitView.IsPaneOpen;
         ContentBorder.CornerRadius = MainSplitView.IsPaneOpen ? new Avalonia.CornerRadius(12, 0, 0, 0) : new Avalonia.CornerRadius(0);
+        ContentBorder.BorderThickness = MainSplitView.IsPaneOpen ? new Avalonia.Thickness(1,1,0,0) : new Avalonia.Thickness(0,1,0,0);
         UpdateTitlebarButtonVisibility();
     }
 
@@ -188,22 +195,24 @@ public partial class MainWindow : AppWindow
     {
         MainSplitView.IsPaneOpen = false;
         ContentBorder.CornerRadius = new Avalonia.CornerRadius(0);
+        ContentBorder.BorderThickness = new Avalonia.Thickness(0,1,0,0);
         UpdateTitlebarButtonVisibility();
         return page;
     }
 
     private void ShowPage(PageKind page)
     {
+        Events.Current.Publish<string>("ETS2LA.UI.SwitchedPage", page.ToString());
+        Events.Current.Publish<EventArgs>($"ETS2LA.UI.SwitchedPage.{page.ToString()}", EventArgs.Empty);
         ContentHost.Content = page switch
         {
             PageKind.Dashboard => dashboardView,
             PageKind.Manager => managerView,
-            PageKind.Visualization => visualizationView ?? CreatePlaceholder("Sorry", "This page is only available on Windows. You can still use the visualization and map by going to https://visualization.ets2la.com (or https://map.ets2la.com)."),
-            PageKind.Catalogue => CreatePlaceholder("Catalogue", "This page will contain 3rd party plugins. Those aren't supported yet, you can copy them manually to the plugins folder and restart."),
+            PageKind.Visualization => CreatePlaceholder("Sorry", "This page is being remade and isn't available in this version. It will return in a future update."),
+            PageKind.Catalogue => catalogueView,
             PageKind.Performance => CreatePlaceholder("Performance", "This page hasn't been implemented yet, you can monitor performance using external tools."),
             PageKind.Wiki => CreatePlaceholder("Wiki", "Please take a look at https://docs.ets2la.com for documentation. This page will link there once we have more content."),
-            PageKind.Roadmap => CreatePlaceholder("Roadmap", "Please take a look at our public roadmap on GitHub. Just got to the repository and click on the Projects tab at the top."),
-            PageKind.Feedback => CreatePlaceholder("Feedback", "Feedback is limited to users in the ETS2LA Closed Beta program. You can use the Discord channels assigned to that for feedback."),
+            PageKind.Roadmap => CreatePlaceholder("Roadmap", "Please take a look at our public roadmap on GitHub. Navigate to the repository and click on the Projects tab at the top."),
             PageKind.Settings => settingsView,
             _ => dashboardView
         };
@@ -277,12 +286,6 @@ public partial class MainWindow : AppWindow
     {
         SetSelected(RoadmapButton);
         ShowPage(PageKind.Roadmap);
-    }
-
-    private void OnFeedbackClick(object? sender, RoutedEventArgs e)
-    {
-        SetSelected(FeedbackButton);
-        ShowPage(PageKind.Feedback);
     }
 
     private void OnSettingsClick(object? sender, RoutedEventArgs e)

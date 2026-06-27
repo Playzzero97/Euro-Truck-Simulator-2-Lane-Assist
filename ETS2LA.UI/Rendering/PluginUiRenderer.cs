@@ -103,8 +103,7 @@ public static class PluginUiRenderer
     {
         var panel = new StackPanel { Spacing = 4 };
         var check = new CheckBox { IsChecked = cb.Default };
-        check.Checked += (_, _) => handler.OnAction(cb.ActionId, true);
-        check.Unchecked += (_, _) => handler.OnAction(cb.ActionId, false);
+        check.IsCheckedChanged += (_, _) => handler.OnAction(cb.ActionId, check.IsChecked == true);
 
         panel.Children.Add(new StackPanel
         {
@@ -124,8 +123,7 @@ public static class PluginUiRenderer
     {
         var toggle = new ToggleSwitch { IsChecked = sw.Default, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left };
         toggle.Classes.Add("primary-toggle");
-        toggle.Checked += (_, _) => handler.OnAction(sw.ActionId, true);
-        toggle.Unchecked += (_, _) => handler.OnAction(sw.ActionId, false);
+        toggle.IsCheckedChanged += (_, _) => handler.OnAction(sw.ActionId, toggle.IsChecked == true);
 
         return new StackPanel
         {

@@ -15,7 +15,16 @@
         <StackPanel>
             <TextBlock Text="Click a card to change bindings. Right click on 'Normal Axis' to change it's type." Classes="Description" Margin="14 7 14 7" />
             <TextBlock x:Name="X11Description" Text="ETS2LA uses X11 inputs. Check your system settings for which keys ETS2LA can access (Legacy X11 App Support)." Classes="Description" Margin="14 7 14 7" IsVisible="False" />
-            <ItemsControl x:Name="ControlsList" ItemsSource="{Binding Controls}" ItemsPanel="{StaticResource WrapPanelTemplate}">
+            <ItemsControl x:Name="ControlsList" ItemsSource="{Binding Controls}" ItemsPanel="{StaticResource WrapPanelTemplate}" AutomationProperties.Name="List of ETS2LA Controls">
+
+                <ItemsControl.Styles>
+                    <Style Selector="ContentPresenter" x:DataType="views:ControlItem">
+                        <Setter Property="AutomationProperties.AccessibilityView" Value="Content" />
+                        
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                    </Style>
+                </ItemsControl.Styles>
+
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="views:ControlItem">
                         <husk:Card 
@@ -27,6 +36,11 @@
                             Cursor="Hand"
                             Classes.Highlight="{Binding IsActive}"
                             PointerPressed="OnTriggerChange"
+
+                            Focusable="True"
+                            KeyDown="OnTriggerChangeKey"
+                            AutomationProperties.Name="{Binding AutomationName}"
+                            AutomationProperties.AccessibilityView="Content"
                         >
                             <StackPanel>
                                 <Grid ColumnDefinitions="*, Auto" ColumnSpacing="6" Margin="14 0 14 0">
@@ -37,11 +51,11 @@
 
                                     <StackPanel Grid.Column="1" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top">
                                         <husk:Tag Classes="Secondary" HorizontalAlignment="Right">
-                                            <TextBlock Text="{Binding DeviceName}" FontSize="12" FontWeight="450" />
+                                            <TextBlock Text="{Binding DeviceName}" FontSize="12" />
                                         </husk:Tag>
                                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
                                             <husk:Tag Classes="Primary">
-                                                <TextBlock Text="{Binding DeviceButtonType}" FontSize="12" FontWeight="450" />
+                                                <TextBlock Text="{Binding DeviceButtonType}" FontSize="12" />
                                                 <husk:Tag.ContextMenu>
                                                     <!-- TODO: Someone who knows more about Avalonia can fix this... -->
                                                     <ContextMenu>
@@ -54,7 +68,7 @@
                                                 </husk:Tag.ContextMenu>
                                             </husk:Tag>
                                             <husk:Tag Classes="Primary">
-                                                <TextBlock Text="{Binding DeviceButton}" FontSize="12" FontWeight="450" />
+                                                <TextBlock Text="{Binding DeviceButton}" FontSize="12" />
                                             </husk:Tag>
                                         </StackPanel>
                                     </StackPanel>

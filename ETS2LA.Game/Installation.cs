@@ -132,7 +132,7 @@ public class Installation
             maps.Remove("/map/europe.mbd");
             foreach (var map in maps)
             {
-                if (map.EndsWith(".mbd"))
+                if (map.EndsWith(".mbd") && !DataSettings.Current.ForceBaseMapName)
                     return map;
             }
 
@@ -143,7 +143,7 @@ public class Installation
             maps.Remove("/map/usa.mbd");
             foreach (var map in maps)
             {
-                if (map.EndsWith(".mbd"))
+                if (map.EndsWith(".mbd") && !DataSettings.Current.ForceBaseMapName)
                     return map;
             }
 
@@ -292,5 +292,106 @@ public class Installation
         });
 
         return true;
+    }
+
+    public bool IsSDKInstalled(string version)
+    {
+        string sdkPath;
+        # if WINDOWS
+            if (Type == GameType.EuroTruckSimulator2)
+                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins", "ets2la_" + version);
+            else
+                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins", "ets2la_" + version);
+        # else
+            if (Type == GameType.EuroTruckSimulator2)
+                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins", "ets2la_" + version);
+            else                
+                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins", "ets2la_" + version);
+        # endif
+
+        if (File.Exists(sdkPath))
+            return true;
+        else
+            return false;
+    }
+
+    public bool InstallSDK(string version)
+    {
+        string SDKSourcePath;
+        # if WINDOWS
+            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Windows");
+        # else
+            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
+        # endif
+
+        string SDKDestinationPath;
+        # if WINDOWS
+            if (Type == GameType.EuroTruckSimulator2)
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins");
+            else
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins");
+        # else
+            if (Type == GameType.EuroTruckSimulator2)
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
+            else                
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
+        # endif
+
+        try
+        {
+            Directory.CreateDirectory(SDKDestinationPath);
+            foreach (string newPath in Directory.GetFiles(SDKSourcePath, "*.*", SearchOption.AllDirectories))
+            {
+                File.Copy(newPath, newPath.Replace(SDKSourcePath, SDKDestinationPath), true);
+                Logger.Info($"Copied '{newPath}' to '{newPath.Replace(SDKSourcePath, SDKDestinationPath)}'");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to install SDK from '{SDKSourcePath}' to '{SDKDestinationPath}': {ex.Message}");
+            return false;
+        }
+    }
+
+    public bool UninstallSDK(string version)
+    {
+        string SDKSourcePath;
+        # if WINDOWS
+            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Windows");
+        # else
+            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
+        # endif
+
+        string SDKDestinationPath;
+        # if WINDOWS
+            if (Type == GameType.EuroTruckSimulator2)
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins");
+            else
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins");
+        # else
+            if (Type == GameType.EuroTruckSimulator2)
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
+            else                
+                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
+        # endif
+
+        try
+        {
+            Directory.CreateDirectory(SDKDestinationPath);
+            foreach (string newPath in Directory.GetFiles(SDKSourcePath, "*.*", SearchOption.AllDirectories))
+            {
+                File.Delete(newPath.Replace(SDKSourcePath, SDKDestinationPath));
+                Logger.Info($"Deleted '{newPath.Replace(SDKSourcePath, SDKDestinationPath)}'");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to uninstall SDK from '{SDKSourcePath}' to '{SDKDestinationPath}': {ex.Message}");
+            return false;
+        }
     }
 }

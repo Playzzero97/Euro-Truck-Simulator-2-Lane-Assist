@@ -30,8 +30,10 @@ class StateWindow : InternalWindow
         Definition = new WindowDefinition
         {
             Title = "State Info",
-            Flags = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings,
+            Flags = ImGuiWindowFlags.AlwaysAutoResize,
         };
+
+        IsWindowOpen = false;
 
         Render = () =>
         {
@@ -43,8 +45,11 @@ class StateWindow : InternalWindow
 
             DescriptionText("Pause Longitudinal Assist: "); ImGui.SameLine(); ColoredBoolean(ApplicationState.Current.PauseLongitudinalAssist, invert: true);
 
-            float speedInUnits = ApplicationState.Current.FromScientificUnits(ApplicationState.Current.DesiredSpeed);
-            DescriptionText("Desired Speed: "); ImGui.SameLine(); Text($"{ApplicationState.Current.DesiredSpeed:F1} m/s ({speedInUnits:F1} in {ApplicationState.Current.DisplayUnits})");
+            float speed = ApplicationState.Current.DesiredSpeed;
+            Units displayUnits = ApplicationState.Current.DisplayUnits;
+            float speedInUnits = UnitConversions.FromScientificUnits(UnitType.Speed, speed, displayUnits);
+            string unitAbbreviation = UnitConversions.GetUnitAbbreviation(UnitType.Speed, displayUnits);
+            DescriptionText("Desired Speed: "); ImGui.SameLine(); Text($"{speed:F1} m/s ({speedInUnits:F1} in {unitAbbreviation})");
 
             DescriptionText("Display Units: "); ImGui.SameLine(); Text(ApplicationState.Current.DisplayUnits.ToString());
         };

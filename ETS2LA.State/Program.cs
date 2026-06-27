@@ -1,9 +1,10 @@
 ﻿using ETS2LA.Controls;
 using ETS2LA.Controls.Defaults;
 using ETS2LA.Backend.Events;
-using ETS2LA.Telemetry;
+using ETS2LA.Game.Telemetry;
 using ETS2LA.Settings.Global;
 using ETS2LA.Game;
+using ETS2LA.Logging;
 using ETS2LA.Notifications;
 
 namespace ETS2LA.State;
@@ -22,13 +23,6 @@ public enum LongitudinalAssists
     AdaptiveCruiseControl
 }
 
-public enum Units
-{
-    Metric,
-    Imperial,
-    Scientific
-}
-
 /// <summary>
 ///  This state contains the most important ETS2LA variables. Most plugins
 ///  will use it to follow the user's preferences and read the game data.
@@ -37,12 +31,13 @@ public class ApplicationState
 {
     private static readonly Lazy<ApplicationState> _instance = new(() => new ApplicationState());
     public static ApplicationState Current => _instance.Value;
-    private bool shutdown = false;
+    private volatile bool shutdown = false;
 
     public ApplicationState()
     {
 
         Events.Current.Subscribe<GameTelemetryData>(GameTelemetry.Current.EventString, HandleTelemetryUpdate);
+        Events.Current.Subscribe<float>("TelemetryEvents.SpeedLimitChanged", HandleSpeedLimitChanged);
 
         ControlsBackend.Current.On(DefaultControls.SET.Id, HandleSet);
         ControlsBackend.Current.On(DefaultControls.Increase.Id, HandleIncrease);
@@ -50,6 +45,15 @@ public class ApplicationState
         ControlsBackend.Current.On(DefaultControls.Assist.Id, HandleAssist);
 
         assistanceSettings = AssistanceSettings.Current;
+
+        StateSettingsHandler.Current.OnSettingsChanged += HandleSettingsChanged;
+        HandleSettingsChanged(StateSettingsHandler.Current.GetSettings());
+    }
+
+    private void HandleSettingsChanged(StateSettings newStateSettings)
+    {
+        stateSettings = newStateSettings;
+        DisplayUnits = newStateSettings.DisplayUnits;
     }
 
     private void HandleTelemetryUpdate(GameTelemetryData data)
@@ -76,6 +80,7 @@ public class ApplicationState
     }
     
 
+
     // MARK: Self-Driving Related
     // NOTE: This class is organized by *category* and not variable/function type.
     //       This makes the most sense to avoid having lots of variables back to back
@@ -90,12 +95,12 @@ public class ApplicationState
     ///  provide Lane Keeping, should be disabled when the user selects a higher
     ///  level.
     /// </summary>
-    public SteeringAssists DesiredSteeringLevel { get; set; } = SteeringAssists.None;
+    public SteeringAssists DesiredSteeringLevel { get; set; } = SteeringAssists.Full;
     /// <summary>
     ///  This value will be set to true if the user has temporarily paused the steering assist,
     ///  e.g. by braking. Once the user resumes assists this value will be set to false again.
     /// </summary>
-    public bool PauseSteeringAssist { get; set; } = false;
+    public bool PauseSteeringAssist { get; set; } = true;
 
     /// <summary>
     ///  Defines the level of longitudinal assistance the user wants. It is assumed that lower levels
@@ -107,7 +112,7 @@ public class ApplicationState
     ///  This value will be set to true if the user has temporarily paused the longitudinal assist,
     ///  e.g. by braking. Once the user resumes assists this value will be set to false again.
     /// </summary>
-    public bool PauseLongitudinalAssist { get; set; } = false;
+    public bool PauseLongitudinalAssist { get; set; } = true;
     /// <summary>
     ///  This value will be used by the longitudinal assist to determine the target speed. This value does
     ///  not take into account any environmental factors. That will either be provided by plugins, or the
@@ -121,41 +126,77 @@ public class ApplicationState
     ///  is automatically changed by ETS2LA, either when the user sets it in the settings, or when we
     ///  detect a change in the game's units. This unit should determine the units used everywhere, e.g.
     ///  the units used when increasing and decreasing the target speed. (+-1 mph/kph/ms) <br/><br/>
-    ///  **Use FromScientificUnits and ToScientificUnits to convert values to and from the current display units.**
+    ///  **Use UnitConversions.FromScientificUnits and UnitConversions.ToScientificUnits to convert values to and from the current display units.**
     /// </summary>
     public Units DisplayUnits { get; set; } = Units.Metric;
 
     // Internal value to keep track of the latest telemetry we received.
     private GameTelemetryData latestTelemetryData = new();
     private AssistanceSettings assistanceSettings;
-
-    public float FromScientificUnits(float speedInMps, Units? overrideDisplayUnits = null)
-    {
-        var units = overrideDisplayUnits ?? DisplayUnits;
-        return units switch
-        {
-            Units.Metric => speedInMps * 3.6f,       // m/s to km/h
-            Units.Imperial => speedInMps * 2.23693f, // m/s to mph
-            Units.Scientific => speedInMps,          // m/s
-            _ => speedInMps
-        };
-    }
-
-    public float ToScientificUnits(float speedInDisplayUnits, Units? overrideDisplayUnits = null)
-    {
-        var units = overrideDisplayUnits ?? DisplayUnits;
-        return units switch
-        {
-            Units.Metric => speedInDisplayUnits / 3.6f,       // km/h to m/s
-            Units.Imperial => speedInDisplayUnits / 2.23693f, // mph to m/s
-            Units.Scientific => speedInDisplayUnits,          // m/s
-            _ => speedInDisplayUnits
-        };
-    }
+    private StateSettings stateSettings;
 
     // The functions below are for handling control events.
     // If determining what they do is hard via code, then take a look at the 
     // example at https://docs.ets2la.com/docs/Rewrite/UserInput#how-to-listen-to-registered-controls
+
+    private void RoundToNearestUnit()
+    {
+        switch (DisplayUnits)
+        {
+            case Units.Metric:
+                DesiredSpeed = (float)(Math.Round(DesiredSpeed * 3.6) / 3.6); // Round to nearest km/h
+                break;
+            case Units.Imperial:
+                DesiredSpeed = (float)(Math.Round(DesiredSpeed * 2.237) / 2.237); // Round to nearest mph
+                break;
+            case Units.Scientific:
+                DesiredSpeed = (float)Math.Round(DesiredSpeed); // Round to nearest m/s
+                break;
+        }
+
+        if (DesiredSpeed < 0)
+            DesiredSpeed = 0;
+    }
+    
+    private float SnapTo10s(float increase)
+    {
+        if (!stateSettings.SnapTo10s)
+            return DesiredSpeed + increase;
+
+        float currentSpeedInDisplayUnits = UnitConversions.FromScientificUnits(UnitType.Speed, DesiredSpeed, DisplayUnits);
+        float newSpeedInDisplayUnits = currentSpeedInDisplayUnits + UnitConversions.FromScientificUnits(UnitType.Speed, increase, DisplayUnits);
+        // When increasing by 2 from 37 we go:
+        // 37 -> 39 -> 40 -> 42 -> 44
+        float currentSpeed10s = (float)(Math.Floor((currentSpeedInDisplayUnits + 0.1f) / 10) * 10);
+        float newSpeed10s = (float)(Math.Floor((newSpeedInDisplayUnits + 0.1f) / 10) * 10);
+        
+        if (currentSpeed10s != newSpeed10s && newSpeed10s > currentSpeed10s)
+        {
+            return UnitConversions.ToScientificUnits(UnitType.Speed, newSpeed10s, DisplayUnits);
+        }
+        else
+        {
+            return DesiredSpeed + increase;
+        }
+    }
+
+    private void HandleSpeedLimitChanged(float newSpeedLimit)
+    {
+        if (DesiredSpeed == 0)
+            return;
+
+        if (newSpeedLimit == 0)
+            newSpeedLimit = UnitConversions.ToScientificUnits(UnitType.Speed, 30, Units.Metric);
+
+        DesiredSpeed = newSpeedLimit;
+        RoundToNearestUnit();
+        NotificationHandler.Current.SendNotification(new Notification
+        {
+            Id = "ApplicationState.SpeedLimitChanged",
+            Title = "Speed limit changed",
+            Content = $"New limit {UnitConversions.FromScientificUnits(UnitType.Speed, newSpeedLimit, DisplayUnits):0} {UnitConversions.GetUnitAbbreviation(UnitType.Speed, DisplayUnits)}"
+        });
+    }
 
     private void HandleSet(object sender, ControlChangeEventArgs e)
     {
@@ -165,16 +206,25 @@ public class ApplicationState
         if (PauseLongitudinalAssist)
         {
             PauseLongitudinalAssist = false;
+            PauseSteeringAssist = false;
             if (assistanceSettings.SetSpeedBehaviourOption == SetSpeedBehaviour.CurrentSpeed)
                 DesiredSpeed = latestTelemetryData.truckFloat.speed;
             else if (assistanceSettings.SetSpeedBehaviourOption == SetSpeedBehaviour.SpeedLimit)
                 DesiredSpeed = latestTelemetryData.truckFloat.speedLimit;
+
+            Events.Current.Publish<EventArgs>("ETS2LA.State.AssistsUnpaused", new EventArgs());
+            Events.Current.Publish<bool>("ETS2LA.State.SteeringPaused", PauseSteeringAssist);
+            Events.Current.Publish<bool>("ETS2LA.State.LongitudinalPaused", PauseLongitudinalAssist);
+            RoundToNearestUnit();
         }
         else
         {
             PauseLongitudinalAssist = true;
-            PauseSteeringAssist = true; // we also pause steering as it doesn't really
-                                        // make sense to have it active when longitudinal assist is paused.
+            PauseSteeringAssist = true;
+
+            Events.Current.Publish<EventArgs>("ETS2LA.State.AssistsPaused", new EventArgs());
+            Events.Current.Publish<bool>("ETS2LA.State.SteeringPaused", PauseSteeringAssist);
+            Events.Current.Publish<bool>("ETS2LA.State.LongitudinalPaused", PauseLongitudinalAssist);
         }
     }
 
@@ -183,9 +233,25 @@ public class ApplicationState
         bool b = (bool)e.NewValue;
         if(b == true) return; // key down event
 
+        // Resume after pause
         if (PauseLongitudinalAssist)
         {
             PauseLongitudinalAssist = false;
+            // Reset speed if it's too low compared to current speed
+            // to avoid an "AEB" like event.
+            if (latestTelemetryData.truckFloat.speed > DesiredSpeed + 5 / 3.6f)
+            {
+                DesiredSpeed = latestTelemetryData.truckFloat.speed;
+            }
+            return;
+        }
+
+        // We're driving at 40kph with no limit (Desired = 0)
+        // -> Press Increase
+        // -> AEB due to speed now being set to 1kph
+        // -> WTF
+        if (Math.Abs(DesiredSpeed) < 0.01f)
+        {
             DesiredSpeed = latestTelemetryData.truckFloat.speed;
             return;
         }
@@ -193,15 +259,19 @@ public class ApplicationState
         switch (DisplayUnits)
         {
             case Units.Metric:
-                DesiredSpeed += ToScientificUnits(1.0f, Units.Metric); // 1 km/h in m/s
+                float increaseMetric = UnitConversions.ToScientificUnits(UnitType.Speed, stateSettings.SpeedControlStepSize, Units.Metric);
+                DesiredSpeed = SnapTo10s(increaseMetric);
                 break;
             case Units.Imperial:
-                DesiredSpeed += ToScientificUnits(1.0f, Units.Imperial); // 1 mph in m/s
+                float increaseImperial = UnitConversions.ToScientificUnits(UnitType.Speed, stateSettings.SpeedControlStepSize, Units.Imperial);
+                DesiredSpeed = SnapTo10s(increaseImperial);
                 break;
             case Units.Scientific:
-                DesiredSpeed += 1f; // 1 m/s
+                DesiredSpeed += stateSettings.SpeedControlStepSize;
                 break;
         }
+
+        RoundToNearestUnit();
     }
 
     private void HandleDecrease(object sender, ControlChangeEventArgs e)
@@ -212,6 +282,17 @@ public class ApplicationState
         if (PauseLongitudinalAssist)
         {
             PauseLongitudinalAssist = false;
+            // Reset speed if it's too low compared to current speed
+            // to avoid an "AEB" like event.
+            if (latestTelemetryData.truckFloat.speed > DesiredSpeed + 5 / 3.6f)
+            {
+                DesiredSpeed = latestTelemetryData.truckFloat.speed;
+            }
+            return;
+        }
+
+        if (Math.Abs(DesiredSpeed) < 0.01f)
+        {
             DesiredSpeed = latestTelemetryData.truckFloat.speed;
             return;
         }
@@ -219,15 +300,19 @@ public class ApplicationState
         switch (DisplayUnits)
         {
             case Units.Metric:
-                DesiredSpeed -= ToScientificUnits(1.0f, Units.Metric); // 1 km/h in m/s
+                float decreaseMetric = UnitConversions.ToScientificUnits(UnitType.Speed, stateSettings.SpeedControlStepSize, Units.Metric);
+                DesiredSpeed = SnapTo10s(-decreaseMetric);
                 break;
             case Units.Imperial:
-                DesiredSpeed -= ToScientificUnits(1.0f, Units.Imperial); // 1 mph in m/s
+                float decreaseImperial = UnitConversions.ToScientificUnits(UnitType.Speed, stateSettings.SpeedControlStepSize, Units.Imperial);
+                DesiredSpeed = SnapTo10s(-decreaseImperial);
                 break;
             case Units.Scientific:
-                DesiredSpeed -= 1f; // 1 m/s
+                DesiredSpeed -= stateSettings.SpeedControlStepSize;
                 break;
         }
+
+        RoundToNearestUnit();
     }
 
     private void HandleAssist(object sender, ControlChangeEventArgs e)
@@ -238,6 +323,7 @@ public class ApplicationState
         if (PauseSteeringAssist)
         {
             PauseSteeringAssist = false;
+            Events.Current.Publish<bool>("ETS2LA.State.SteeringPaused", PauseSteeringAssist);
         }
         else
         {
@@ -246,6 +332,9 @@ public class ApplicationState
             {
                 DesiredSteeringLevel = SteeringAssists.None;
             }
+
+            Events.Current.Publish<SteeringAssists>("ETS2LA.State.SteeringLevel", DesiredSteeringLevel);
+            Events.Current.Publish<EventArgs>($"ETS2LA.State.SteeringLevel.{DesiredSteeringLevel}", new EventArgs());
         }
     }
 
@@ -275,7 +364,6 @@ public class ApplicationState
                 
                 if(install.Type == RunningGameType)
                 {
-                    install.Version = RunningGameVersion;
                     parsingTask = Task.Run(async () =>
                     {
                         bool success = install.Parse();

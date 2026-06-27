@@ -3,7 +3,6 @@ using ETS2LA.Controls;
 using ETS2LA.Audio;
 
 using Spectre.Console;
-using ETS2LA.Backend.Updates;
 
 namespace ETS2LA.Backend
 {
@@ -25,7 +24,7 @@ namespace ETS2LA.Backend
         /// <summary>
         ///  The PluginHandler is what actually manages the plugins.
         /// </summary>
-        public PluginHandler? pluginHandler;
+        public PluginHandler? PluginHandler;
         /// <summary>
         ///  This event is fired when the backend has been loaded.
         /// </summary>
@@ -39,8 +38,9 @@ namespace ETS2LA.Backend
         {
             Logger.Console.Status().Start("Starting ETS2LA...", ctx =>
             {
-                pluginHandler = new PluginHandler();
-                pluginHandler.LoadPlugins();
+                PluginHandler = new PluginHandler();
+                PluginHandler.LoadLibraries();
+                PluginHandler.LoadPlugins();
                 Thread.Sleep(1000);
 
                 Logger.Success("ETS2LA is running.");
@@ -51,9 +51,9 @@ namespace ETS2LA.Backend
 
         public void Shutdown()
         {
-            if (pluginHandler != null)
+            if (PluginHandler != null)
             {
-                pluginHandler.UnloadPlugins();
+                PluginHandler.UnloadPlugins();
             }
             ControlsBackend.Current.Shutdown();
             AudioHandler.Current.Shutdown();

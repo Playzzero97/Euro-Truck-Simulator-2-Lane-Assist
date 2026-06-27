@@ -13,8 +13,10 @@ namespace ETS2LA.Overlay
         public Optional<ImGuiWindowFlags> Flags;
         public Optional<int> Width;
         public Optional<int> Height;
+        public Optional<Func<(int, int)>> SizingFunction;
         public Optional<int> X;
         public Optional<int> Y;
+        public Optional<Func<(int, int)>> LocationFunction;
         public Optional<float> Alpha;
         /// <summary>
         ///  This might be useful if you want a reliable callback to when

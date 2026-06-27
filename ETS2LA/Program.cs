@@ -1,11 +1,20 @@
 ﻿using Velopack;
 using Velopack.Locators;
 
-using ETS2LA.UI;
+using ETS2LA.Tutorials;
 using ETS2LA.Overlay;
 using ETS2LA.Backend;
-using ETS2LA.Telemetry;
+using ETS2LA.Game.Telemetry;
 using ETS2LA.State;
+using ETS2LA.Settings.Global;
+using ETS2LA.Telemetry;
+using ETS2LA.Networking;
+
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Exporter;
 
 namespace ETS2LA;
 
@@ -30,36 +39,47 @@ internal static class Program
             #endif
             .Run();
 
-        #if LINUX
-        string? useWayland = Environment.GetEnvironmentVariable("GLFW_USE_WAYLAND");
-        if (useWayland == null || useWayland == "0" || useWayland == "")
+        string currentVersion = VelopackLocator.Current?.CurrentlyInstalledVersion?.ToString()
+                             ?? System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) 
+                             ?? "unknown"; 
+
+        // For OTel (OpenTelemetry)
+        var appResource = ResourceBuilder.CreateDefault()
+            .AddService("ETS2LA", serviceVersion: currentVersion)
+            .AddAttributes(OTelAttributes.GetAttributes());
+
+        // These get automatically removed because of using var
+        using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+            .SetResourceBuilder(appResource)
+            .AddSource("ETS2LA.*")
+            .AddOtlpExporter(options =>
+            {
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.Endpoint = UserSettings.Current.IsTelemetryEnabled ? new Uri("https://otel.ets2la.com/v1/traces") : new Uri("http://localhost:4318/v1/traces");
+            })
+            .Build();
+        
+        using var meterProvider = Sdk.CreateMeterProviderBuilder()
+            .SetResourceBuilder(appResource)
+            .AddMeter("ETS2LA.*")
+            .AddOtlpExporter(options =>
+            {
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.Endpoint = UserSettings.Current.IsTelemetryEnabled ? new Uri("https://otel.ets2la.com/v1/metrics") : new Uri("http://localhost:4318/v1/metrics");
+            })
+            .Build();
+
+        bool shutdown = false;
+        var AnalyticsThread = Task.Run(() =>
         {
-            // This is to prevent GLFW from trying to use wayland. If wayland is still required
-            // then setting GLFW_USE_WAYLAND=1 should work fine.
-            Environment.SetEnvironmentVariable("GLFW_USE_WAYLAND", "0");
-            Environment.SetEnvironmentVariable("SDL_VIDEODRIVER", "x11");
-        }
-        #endif
-
-        #if MACOSX
-        var overlay = OverlayHandler.Current;
-        UI.Program.Main(args, afterSetup: () =>
-        {
-            _ = PluginBackend.Current;
-            _ = GameTelemetry.Current;
-            _ = ApplicationState.Current;
-
-            overlay.InitWindowOnMainThread();
-
-            var timer = new Avalonia.Threading.DispatcherTimer(
-                TimeSpan.FromMilliseconds(16),
-                Avalonia.Threading.DispatcherPriority.Render,
-                (_, _) => overlay.RenderFrame()
-            );
-            timer.Start();  
+            while (!shutdown)
+            {
+                AppAnalytics.Pulse();
+                Thread.Sleep(TimeSpan.FromMinutes(1));
+            }
         });
-        #else
-        Task.Run(() =>
+
+        var BackendThread = Task.Run(() =>
         {
             // These initialize global instances, if there's a more "official" way to
             // do this then please make a PR for that.
@@ -67,15 +87,30 @@ internal static class Program
             var backend = PluginBackend.Current;
             var telemetry = GameTelemetry.Current;
             var state = ApplicationState.Current;
+            var tutorials = TutorialHandler.Current;
+            var networking = NetworkingClient.Current;
         });
-        UI.Program.Main(args);
-        #endif
+
+        # if LINUX
+            string? useWayland = Environment.GetEnvironmentVariable("GLFW_USE_WAYLAND");
+            if (useWayland == null || useWayland == "0" || useWayland == "")
+            {
+                // This is to prevent GLFW from trying to use wayland. If wayland is still required
+                // then setting GLFW_USE_WAYLAND=1 should work fine.
+                Environment.SetEnvironmentVariable("GLFW_USE_WAYLAND", "0");
+                Environment.SetEnvironmentVariable("SDL_VIDEODRIVER", "x11");
+            }
+        # endif
 
         // Gotta wait for the UI thread to close (i.e. user closed the window)
         // and then tell the backend to shutdown too.
+        UI.Program.Main(args);
+
+        shutdown = true;
         PluginBackend.Current.Shutdown();
         OverlayHandler.Current.Shutdown();
         GameTelemetry.Current.Shutdown();
         ApplicationState.Current.Shutdown();
+        TutorialHandler.Current.Shutdown();
     }
 }

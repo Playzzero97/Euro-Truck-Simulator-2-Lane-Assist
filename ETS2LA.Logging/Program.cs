@@ -13,6 +13,8 @@ namespace ETS2LA.Logging
         public static string lastLine = "";
         public static int repeatCount = 0;
 
+        private static readonly object _logLock = new();
+
         public static event Action<Tuple<string, string>> OnLog;
         static Logger()
         {
@@ -99,15 +101,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("DBG", message, "grey", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("DBG", message, "grey", filePath, lineNumber);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
         public static void Info(
             string message,
@@ -115,15 +120,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("INF", message, "blue", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("INF", message, "blue", filePath, lineNumber);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
 
         public static void Warn(
@@ -132,15 +140,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("WRN", message, "yellow", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("WRN", message, "yellow", filePath, lineNumber);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
 
         public static void Error(
@@ -149,15 +160,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("ERR", message, "red", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("ERR", message, "red", filePath, lineNumber);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
 
         public static void Fatal(
@@ -166,15 +180,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("FTL", message, "bold red", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("FTL", message, "bold red", filePath, lineNumber, ex);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
 
         public static void Success(
@@ -183,15 +200,18 @@ namespace ETS2LA.Logging
             [CallerLineNumber] int lineNumber = 0
         )
         {
-            if (message == lastLine)
+            lock (_logLock)
             {
-                PrintRepeating(message);
-                return;
-            }
+                if (message == lastLine)
+                {
+                    PrintRepeating(message);
+                    return;
+                }
 
-            WriteLogLine("OKK", message, "bold green", filePath, lineNumber);
-            lastLine = message;
-            repeatCount = 0;
+                WriteLogLine("OKK", message, "bold green", filePath, lineNumber);
+                lastLine = message;
+                repeatCount = 0;
+            }
         }
     }
 }

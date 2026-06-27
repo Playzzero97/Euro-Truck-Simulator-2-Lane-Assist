@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Metadata;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using ETS2LA.Backend.Events;
 using ETS2LA.UI.Views.Settings;
 
 namespace ETS2LA.UI.Views;
@@ -10,7 +11,7 @@ namespace ETS2LA.UI.Views;
 public partial class SettingsView : UserControl
 {
 
-    private readonly WindowSettings _windowSettings = new();
+    private readonly DisplaySettings _displaySettings = new();
     private readonly AudioSettings _audioSettings = new();
     private readonly ThemeSettings _themeSettings = new();
     private readonly ControlSettings _controlSettings = new();
@@ -18,6 +19,9 @@ public partial class SettingsView : UserControl
     private readonly Updates _updates = new();
     private readonly AssistanceSettingsPage _assistanceSettings = new();
     private readonly DataSettingsPage _dataSettings = new();
+    private readonly UserSettingsView _userSettings = new();
+
+    public string SelectedPageName { get; private set; } = string.Empty;
 
     private readonly List<Button> _navButtons = new();
     ContentControl _contentHost => this.FindControl<ContentControl>("ContentHost") ?? throw new InvalidOperationException("ContentHost not found");
@@ -32,11 +36,12 @@ public partial class SettingsView : UserControl
             // Don't know why I have to find the controls, a direct reference
             // to them via x:Name doesn't work in this file for some reason.
             // TODO: Investigate later.
-            this.FindControl<Button>("WindowButton"),
+            this.FindControl<Button>("DisplayButton"),
             this.FindControl<Button>("AudioButton"),
             this.FindControl<Button>("ThemeButton"),
             this.FindControl<Button>("ControlsButton"),
             this.FindControl<Button>("SDKButton"),
+            this.FindControl<Button>("UserButton"),
             this.FindControl<Button>("UpdateButton"),
             this.FindControl<Button>("AssistanceButton"),
             this.FindControl<Button>("DataButton"),
@@ -51,13 +56,27 @@ public partial class SettingsView : UserControl
         {
             button.Classes.Remove("Selected");
         }
+
         this.FindControl<Button>(active)?.Classes.Add("Selected");
+        string pageName = active.Replace("Button", "");
+        SelectedPageName = pageName;
+        Events.Current.Publish<string>("ETS2LA.UI.SwitchedPage", "Settings." + pageName);
+        Events.Current.Publish<EventArgs>($"ETS2LA.UI.SwitchedPage.Settings.{pageName}", EventArgs.Empty);
+
+        // Focus the content host for accessibility
+        _contentHost.Focus();
     }
 
-    private void OnWindowSettingsClick(object? sender, RoutedEventArgs e)
+    private void OnUserSettingsClick(object? sender, RoutedEventArgs e)
     {
-        _contentHost.Content = _windowSettings;
-        SetSelected("WindowButton");
+        _contentHost.Content = _userSettings;
+        SetSelected("UserButton");
+    }
+
+    private void OnDisplaySettingsClick(object? sender, RoutedEventArgs e)
+    {
+        _contentHost.Content = _displaySettings;
+        SetSelected("DisplayButton");
     }
 
     private void OnAudioSettingsClick(object? sender, RoutedEventArgs e)

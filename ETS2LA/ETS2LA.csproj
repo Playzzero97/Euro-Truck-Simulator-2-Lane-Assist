@@ -8,10 +8,13 @@
 
     <Title>ETS2LA</Title>
     <Description>Self driving for ETS2 and ATS.</Description>
-    <Version>3.1.14</Version>
+    <Version>3.4.11</Version>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="OpenTelemetry" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
   </ItemGroup>
 
@@ -20,57 +23,31 @@
     <ProjectReference Include="..\ETS2LA.Overlay\ETS2LA.Overlay.csproj" />
     <ProjectReference Include="..\ETS2LA.Backend\ETS2LA.Backend.csproj" />
     <ProjectReference Include="..\ETS2LA.Telemetry\ETS2LA.Telemetry.csproj" />
+    <ProjectReference Include="..\ETS2LA.Tutorials\ETS2LA.Tutorials.csproj" />
     <ProjectReference Include="..\ETS2LA.State\ETS2LA.State.csproj" />
+    <ProjectReference Include="..\ETS2LA.Settings\ETS2LA.Settings.csproj" />
+    <ProjectReference Include="..\ETS2LA.Networking\ETS2LA.Networking.csproj" />
   </ItemGroup>
 
   <ItemGroup Label="ETS2LA.UI Requirements">
-    <PackageReference Include="Avalonia" Version="11.3.9" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.9" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.9" />
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.9" Condition="'$(Configuration)'=='Debug'" />
+    <PackageReference Include="Avalonia" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.2" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1" Condition="'$(Configuration)'=='Debug'" />
     <PackageReference Include="Avalonia.ReactiveUI" Version="11.3.9" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.9" />
-    <PackageReference Include="Huskui.Avalonia" Version="0.7.2" />
-    <PackageReference Include="Projektanker.Icons.Avalonia" Version="9.6.2" />
-    <PackageReference Include="Projektanker.Icons.Avalonia.FontAwesome" Version="9.6.2" />
-    <PackageReference Include="Projektanker.Icons.Avalonia.MaterialDesign" Version="9.6.2" />
-  </ItemGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="WebViewControl-Avalonia" Version="3.120.10" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0" />
+    <PackageReference Include="Huskui.Avalonia" Version="1.1.3" />
+    <PackageReference Include="Huskui.Avalonia.Markdown" Version="1.1.3" />
+    <PackageReference Include="Optris.Icons.Avalonia" Version="12.0.6" />
+    <PackageReference Include="Optris.Icons.Avalonia.FontAwesome" Version="12.0.6" />
+    <PackageReference Include="Optris.Icons.Avalonia.MaterialDesign" Version="12.0.6" />
   </ItemGroup>
 
   <Target Name="CopyAssets" AfterTargets="Build">
     <ItemGroup>
       <AssetFiles Include="$(MSBuildThisFileDirectory)..\Assets\**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(AssetFiles)" 
-          DestinationFiles="@(AssetFiles->'$(OutputPath)Assets\%(RecursiveDir)%(Filename)%(Extension)')" 
-          SkipUnchangedFiles="true" />
-  </Target>
-
-  <Target Name="CopyPlugins" AfterTargets="Build">
-    <ItemGroup>
-      <PluginProjects Include="$(MSBuildThisFileDirectory)..\Plugins\*\*.csproj" />
-    </ItemGroup>
-  
-    <MSBuild Projects="@(PluginProjects)" Targets="GetTargetPath">
-      <Output TaskParameter="TargetOutputs" ItemName="PluginFiles" />
-    </MSBuild>
-  
-    <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(OutputPath)Plugins\" SkipUnchangedFiles="true" ContinueOnError="WarnAndContinue" />
-  </Target>
-
-  <Target Name="CopyPluginsPublish" AfterTargets="Publish">
-    <ItemGroup>
-      <PluginProjects Include="$(MSBuildThisFileDirectory)..\Plugins\*\*.csproj" />
-    </ItemGroup>
-    
-    <MSBuild Projects="@(PluginProjects)" Targets="GetTargetPath">
-      <Output TaskParameter="TargetOutputs" ItemName="PluginFiles" />
-    </MSBuild>
-    
-    <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(PublishDir)Plugins\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(AssetFiles)" DestinationFiles="@(AssetFiles->'$(OutputPath)Assets\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CopyLibdeflate" AfterTargets="Build">

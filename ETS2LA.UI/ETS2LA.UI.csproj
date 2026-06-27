@@ -8,41 +8,38 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.9">
+    <PackageReference Include="AsyncImageLoader.Avalonia" Version="3.8.0" />
+    <PackageReference Include="Avalonia" Version="12.0.2">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.9">
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.2">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.9">
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.2">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.9" Condition="'$(Configuration)'=='Debug'">
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1" Condition="'$(Configuration)'=='Debug'">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Avalonia.ReactiveUI" Version="11.3.9">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.9">
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Huskui.Avalonia" Version="0.7.2">
+    <PackageReference Include="Huskui.Avalonia" Version="1.1.3">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Markdown.Avalonia" Version="11.0.2" />
-    <PackageReference Include="Projektanker.Icons.Avalonia" Version="9.6.2">
+    <PackageReference Include="Huskui.Avalonia.Markdown" Version="1.1.3">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Projektanker.Icons.Avalonia.FontAwesome" Version="9.6.2">
+    <PackageReference Include="Optris.Icons.Avalonia" Version="12.0.6">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Projektanker.Icons.Avalonia.MaterialDesign" Version="9.6.2">
+    <PackageReference Include="Optris.Icons.Avalonia.FontAwesome" Version="12.0.6">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-  </ItemGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="WebViewControl-Avalonia" Version="3.120.10">
+    <PackageReference Include="Optris.Icons.Avalonia.MaterialDesign" Version="12.0.6">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
@@ -75,5 +72,7 @@
     <ProjectReference Include="..\ETS2LA.Audio\ETS2LA.Audio.csproj" />
     <ProjectReference Include="..\ETS2LA.Notifications\ETS2LA.Notifications.csproj" />
     <ProjectReference Include="..\ETS2LA.Game\ETS2LA.Game.csproj" />
+    <ProjectReference Include="..\ETS2LA.Overlay\ETS2LA.Overlay.csproj" />
+    <ProjectReference Include="..\ETS2LA.Networking\ETS2LA.Networking.csproj" />
   </ItemGroup>
 </Project>

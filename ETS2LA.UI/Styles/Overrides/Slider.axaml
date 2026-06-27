@@ -4,8 +4,11 @@
     <Style Selector="Slider">
         <Setter Property="ClipToBounds" Value="False"/>
     </Style>
-    <Style Selector="Slider Panel">
+    <Style Selector="Slider Grid">
         <Setter Property="Background" Value="{DynamicResource Gray4Color}"/>
         <Setter Property="Height" Value="6"/>
+    </Style>
+    <Style Selector="Slider Thumb">
+        <Setter Property="Margin" Value="0 -6 0 0"/>
     </Style>
 </Styles>

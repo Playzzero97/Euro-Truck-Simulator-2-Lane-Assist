@@ -9,42 +9,41 @@ using TruckLib;
 
 namespace ETS2LA.Game.SDK;
 
-public class TrafficTrailer
+public class BaseVehicle
 {
-    public Vector3 position = Vector3.Zero;
-    public System.Numerics.Quaternion rotation = System.Numerics.Quaternion.Identity;
-    public Vector3 size = Vector3.Zero;
+    public Vector3 Position { get; set; }
+    public Quaternion Rotation { get; set; }
+    public Vector3 Size { get; set; }
 
     public List<Vector3> GetCornersOnGround()
     {
         List<Vector3> corners = new List<Vector3>();
-        Vector3 halfSize = size / 2;
+        Vector3 halfSize = Size / 2;
 
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
+        corners.Add(Position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(Position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
+        corners.Add(Position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
+        corners.Add(Position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
 
-        Quaternion invQuat = Quaternion.Conjugate(rotation);
+        Quaternion invQuat = Quaternion.Conjugate(Rotation);
         Vector3 euler = invQuat.ToEuler();
         Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + (float)Math.PI, -euler.Z + (float)Math.PI, -euler.X);
         for (int i = 0; i < corners.Count; i++)
         {
-            corners[i] = Vector3.Transform(corners[i] - position, filteredRot) + position;
+            corners[i] = Vector3.Transform(corners[i] - Position, filteredRot) + Position;
         }
 
         return corners;
     }
 }
 
-public class TrafficVehicle
+public class TrafficTrailer : BaseVehicle
 {
-    public Vector3 position = Vector3.Zero;
-    public System.Numerics.Quaternion rotation = System.Numerics.Quaternion.Identity;
-    /// <summary>
-    ///  Size, X = Width, Y = Height, Z = Length. Note that the length is not always accurate, especially for trailers.
-    /// </summary>
-    public Vector3 size = Vector3.Zero;
+    public required TrafficVehicle parent;
+}
+
+public class TrafficVehicle : BaseVehicle
+{
     public float speed;
     public float acceleration;
     public Int16 trailer_count;
@@ -56,26 +55,9 @@ public class TrafficVehicle
 
     public TrafficTrailer[] trailers = Array.Empty<TrafficTrailer>();
 
-    public List<Vector3> GetCornersOnGround()
-    {
-        List<Vector3> corners = new List<Vector3>();
-        Vector3 halfSize = size / 2;
-
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, -halfSize.Z));
-        corners.Add(position + new Vector3(halfSize.X, -halfSize.Y, halfSize.Z));
-        corners.Add(position + new Vector3(-halfSize.X, -halfSize.Y, halfSize.Z));
-
-        Quaternion invQuat = Quaternion.Conjugate(rotation);
-        Vector3 euler = invQuat.ToEuler();
-        Quaternion filteredRot = Quaternion.CreateFromYawPitchRoll(-euler.Y + (float)Math.PI, -euler.Z + (float)Math.PI, -euler.X);
-        for (int i = 0; i < corners.Count; i++)
-        {
-            corners[i] = Vector3.Transform(corners[i] - position, filteredRot) + position;
-        }
-
-        return corners;
-    }
+    // These are only internal
+    public Vector3 lastPosition = Vector3.Zero;
+    public float lastUpdateTime = 0f;
 }
 
 public class TrafficData
@@ -89,24 +71,39 @@ public class TrafficProvider
     public static TrafficProvider Current => _instance.Value;
 
     private float UpdateRate { get; set; } = 1f / 60f;
+    private float SpeedUpdateRateInTMP = 1f / 2f;
     public string EventString = "ETS2LA.Game.SDK.Traffic.Data";
 
-    private MemoryReader? _reader;
+    private MemoryReader _reader;
     private TrafficData? _currentData = new();
-    
+    private TrafficVehicle[] _lastVehicles = Array.Empty<TrafficVehicle>();
+
 
     string mmapName = "Local\\ETS2LATraffic";
     string mmapNameLinux = "/dev/shm/ETS2LATraffic";
     string mmapNameMacOS = "/tmp/ETS2LATraffic";
     int mmapSize = 6800;
 
+    private MemoryMappedFile? _mmf;
+    private MemoryMappedViewAccessor? _accessor;
+    private byte[] _buffer = Array.Empty<byte>();
+    private readonly Stopwatch _sinceReconnect = Stopwatch.StartNew();
+
     public TrafficProvider()
     {
+        _buffer = new byte[mmapSize];
+        _reader = new MemoryReader(_buffer);
+
         Thread updateThread = new Thread(UpdateThread)
         {
             IsBackground = true
         };
         updateThread.Start();
+    }
+
+    public TrafficData? GetCurrentTrafficData()
+    {
+        return _currentData;
     }
 
     private void UpdateThread()
@@ -127,11 +124,52 @@ public class TrafficProvider
             try { Update(); }
             catch (Exception ex)
             {
-                Logger.Error(ex.ToString(), "Error in camera update loop.");
+                Logger.Error(ex.ToString(), "Error in traffic update loop.");
             }
         }
     }
     
+    private bool TryOpenMemory()
+    {
+        if (_accessor != null)
+            return true;
+
+        try
+        {
+            #if WINDOWS
+                _mmf = MemoryMappedFile.OpenExisting(mmapName);
+            #elif MACOSX
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
+            # else
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
+            # endif
+
+            _accessor = _mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            CloseMemory();
+            Thread.Sleep(10000);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CloseMemory();
+            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Thread.Sleep(10000);
+            return false;
+        }
+    }
+
+    private void CloseMemory()
+    {
+        _accessor?.Dispose();
+        _accessor = null;
+        _mmf?.Dispose();
+        _mmf = null;
+    }
+
     private void Update()
     {
         if (_currentData == null)
@@ -139,43 +177,19 @@ public class TrafficProvider
             _currentData = new TrafficData();
         }
 
-        MemoryMappedFile? mmf = null;
-        MemoryMappedViewAccessor? accessor = null;
-        byte[] buffer = new byte[mmapSize];
+        if (!TryOpenMemory())
+            return;
 
         try
         {
-            #if WINDOWS
-                mmf = MemoryMappedFile.OpenExisting(mmapName);
-            #elif MACOSX
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
-            # else
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
-            # endif
-
-            accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
-            accessor.ReadArray(0, buffer, 0, mmapSize);
-            _reader = new MemoryReader(buffer);
+            _accessor!.ReadArray(0, _buffer, 0, mmapSize);
         }
-        catch (FileNotFoundException)
+        catch (Exception)
         {
-            Thread.Sleep(10000);
-            _reader = null;
+            // Mapping went away (e.g. game closed), reconnect on the next update.
+            CloseMemory();
             return;
         }
-        catch (Exception ex)
-        {
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
-            Thread.Sleep(10000);
-            _reader = null;
-            return;
-        }
-        finally
-        {
-            accessor?.Dispose();
-            mmf?.Dispose();
-        }
-
 
         List<TrafficVehicle> vehicles = new List<TrafficVehicle>();
         int offset = 0;
@@ -184,14 +198,14 @@ public class TrafficProvider
             TrafficVehicle vehicle = new TrafficVehicle();
 
             // 0
-            vehicle.position = new Vector3(
+            vehicle.Position = new Vector3(
                 _reader.ReadFloat(offset),
                 _reader.ReadFloat(offset + 4),
                 _reader.ReadFloat(offset + 8)
             ); offset += 12;
 
             // 12
-            vehicle.rotation = new System.Numerics.Quaternion(
+            vehicle.Rotation = new System.Numerics.Quaternion(
                 _reader.ReadFloat(offset),
                 _reader.ReadFloat(offset + 4),
                 _reader.ReadFloat(offset + 8),
@@ -199,7 +213,7 @@ public class TrafficProvider
             ); offset += 16;
 
             // 28
-            vehicle.size = new Vector3(
+            vehicle.Size = new Vector3(
                 _reader.ReadFloat(offset),     // Width
                 _reader.ReadFloat(offset + 4), // Height
                 _reader.ReadFloat(offset + 8)  // Length
@@ -223,15 +237,15 @@ public class TrafficProvider
             for (int j = 0; j < 3; j++)
             {
                 // 0
-                TrafficTrailer trailer = new TrafficTrailer();
-                trailer.position = new Vector3(
+                TrafficTrailer trailer = new TrafficTrailer{ parent = vehicle };
+                trailer.Position = new Vector3(
                     _reader.ReadFloat(offset),
                     _reader.ReadFloat(offset + 4),
                     _reader.ReadFloat(offset + 8)
                 ); offset += 12;
 
                 // 12
-                trailer.rotation = new System.Numerics.Quaternion(
+                trailer.Rotation = new System.Numerics.Quaternion(
                     _reader.ReadFloat(offset),
                     _reader.ReadFloat(offset + 4),
                     _reader.ReadFloat(offset + 8),
@@ -239,7 +253,7 @@ public class TrafficProvider
                 ); offset += 16;
 
                 // 28
-                trailer.size = new Vector3(
+                trailer.Size = new Vector3(
                     _reader.ReadFloat(offset),     // Width
                     _reader.ReadFloat(offset + 4), // Height
                     _reader.ReadFloat(offset + 8)  // Length
@@ -253,7 +267,39 @@ public class TrafficProvider
             vehicles.Add(vehicle);
         }
 
+        _lastVehicles = _currentData.vehicles;
         _currentData.vehicles = vehicles.ToArray();
+
+        // Update vehicle speeds
+        var curTime = Environment.TickCount / 1000f;
+        foreach (var vehicle in _currentData.vehicles)
+        {
+            if (vehicle.isTMP)
+            {
+                var lastVehicle = _lastVehicles.FirstOrDefault(v => v.id == vehicle.id);
+                if (lastVehicle != null)
+                {
+                    vehicle.speed = lastVehicle.speed;
+                    vehicle.lastPosition = lastVehicle.lastPosition;
+                    vehicle.lastUpdateTime = lastVehicle.lastUpdateTime;
+                    if (curTime - vehicle.lastUpdateTime > SpeedUpdateRateInTMP)
+                    {
+                        var distance = Vector3.Distance(vehicle.lastPosition, vehicle.Position);
+                        vehicle.speed = distance / (curTime - vehicle.lastUpdateTime);
+                        vehicle.lastPosition = vehicle.Position;
+                        vehicle.lastUpdateTime = curTime;
+                    }
+                }
+            }
+        }
+
         Events.Current.Publish<TrafficData>(EventString, _currentData);
+
+        // Periodically reopen the mmap to detect game restarts.
+        if (_sinceReconnect.Elapsed.TotalSeconds > 1.0)
+        {
+            CloseMemory();
+            _sinceReconnect.Restart();
+        }
     }
 }

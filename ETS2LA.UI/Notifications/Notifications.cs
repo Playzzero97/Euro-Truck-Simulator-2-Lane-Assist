@@ -4,8 +4,8 @@ using ETS2LA.Notifications;
 
 using Avalonia.Threading;
 using Huskui.Avalonia.Controls;
-using Avalonia.LogicalTree;
 using Huskui.Avalonia.Models;
+using Avalonia.Controls.Templates;
 
 namespace ETS2LA.UI.Notifications;
 
@@ -138,6 +138,17 @@ public class UINotificationHandler
 
     private void UpdateNotification(UINotification notification)
     {
+        if (_window == null || !_window.IsLoaded) {
+            Logger.Warn("Attempted to update notification before MainWindow was loaded.");
+            return;
+        }
+
+        if (ActiveNotifications.All(x => x.Id != notification.Id))
+        {
+            Dispatcher.UIThread.Post(() => SendNotification(notification));
+            return;
+        }
+
         if (!Dispatcher.UIThread.CheckAccess())
         {
             Dispatcher.UIThread.Post(() => UpdateNotification(notification));
@@ -189,8 +200,12 @@ public class UINotificationHandler
                     return;
                 }
 
-                GrowlHost? growlHost = _window.GetLogicalChildren().OfType<GrowlHost>().FirstOrDefault();
-                if (growlHost == null) return;
+                AppSurface? appSurface = _window.GetTemplateDescendants().OfType<AppSurface>().FirstOrDefault();
+                GrowlHost? growlHost = appSurface?.GetTemplateDescendants().OfType<GrowlHost>().FirstOrDefault();
+                if (growlHost == null) {
+                    Logger.Error("Failed to find GrowlHost in MainWindow. Cannot display notification.");
+                    return;
+                }
 
                 GrowlItem item = new GrowlItem
                 {

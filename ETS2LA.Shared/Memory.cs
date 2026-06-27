@@ -114,10 +114,8 @@ namespace ETS2LA.Shared
             for (int i = 0; i < count; i++)
             {
                 char c = (char)memory[offset + i];
-                if (c != '\0') // Skip null characters
-                {
-                    charBuilder.Append(c);
-                }
+                if (c == '\0') break; // C strings terminate at first null
+                charBuilder.Append(c);
             }
             return charBuilder.ToString();
         }

@@ -53,18 +53,25 @@ public partial class ControlSettings : UserControl
     }
 
     // Called when a user clicks the control card to rebind it.
-    private void OnTriggerChange(object? sender, RoutedEventArgs e)
+    private void OnTriggerChange(object? sender, PointerPressedEventArgs e)
     {
-        if (e is not PointerPressedEventArgs)
-            return;
-
-        var pointerEvent = (PointerPressedEventArgs)e;
-        if (!pointerEvent.Properties.IsLeftButtonPressed)
+        if (!e.Properties.IsLeftButtonPressed)
             return;
 
         if (sender is Control { Tag: ControlItem item })
         {
             Task.Run(() => item.TriggerChange());
+        }
+    }
+
+    private void OnTriggerChangeKey(object? sender, KeyEventArgs e)
+    {
+        if (sender is Control { Tag: ControlItem item })
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Space)
+            {
+                Task.Run(() => item.TriggerChange());
+            }
         }
     }
 
@@ -120,6 +127,8 @@ public class ControlItem : INotifyPropertyChanged
     public string DeviceName => GetDeviceName();
     public string DeviceButton => GetDeviceButton();
     public string DeviceButtonType => GetControlType();
+
+    public string AutomationName => GetAutomationName();
     
     private bool _isActive = false;
     public bool IsActive => _isActive;
@@ -179,6 +188,7 @@ public class ControlItem : INotifyPropertyChanged
             OnPropertyChanged(nameof(DeviceName));
             OnPropertyChanged(nameof(DeviceButton));
             OnPropertyChanged(nameof(DeviceButtonType));
+            OnPropertyChanged(nameof(AutomationName));
             NotificationHandler.Current.SendNotification(new Notification
             {
                 Id = "ControlSettings.SuccessfullyBound",
@@ -208,6 +218,7 @@ public class ControlItem : INotifyPropertyChanged
             newType
         );
         OnPropertyChanged(nameof(DeviceButtonType));
+        OnPropertyChanged(nameof(AutomationName));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -294,5 +305,10 @@ public class ControlItem : INotifyPropertyChanged
             return "Hat " + _instance.ControlId.ToString()?.Split(" ")?.ElementAtOrDefault(1);
 
         return _instance.AxisBehavior.ToString() + " Axis";
+    }
+
+    private string GetAutomationName()
+    {
+        return $"Control {Name}, {Description}, set to {GetDeviceName()} {GetControlType()} {GetDeviceButton()}";
     }
 }

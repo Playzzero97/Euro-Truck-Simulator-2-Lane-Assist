@@ -40,17 +40,17 @@ public class GameHandler
 
     private void PopulateInstallations()
     {
-        List<string> games = SteamHandler.FindGamesInLibraries(new List<string>
+        Dictionary<string, string> games = SteamHandler.FindGamesInLibraries(new List<string>
         {
-            "Euro Truck Simulator 2",
-            "American Truck Simulator"
+            SteamHandler.EuroTruckSimulator2AppId,
+            SteamHandler.AmericanTruckSimulatorAppId
         });
 
         Logger.Info($"Found {games.Count} game installations.");
-        games.ForEach(gamePath =>
+        foreach ((string appId, string gamePath) in games)
         {
-            GameType type = gamePath.EndsWith("Euro Truck Simulator 2") 
-                            ? GameType.EuroTruckSimulator2 
+            GameType type = appId == SteamHandler.EuroTruckSimulator2AppId
+                            ? GameType.EuroTruckSimulator2
                             : GameType.AmericanTruckSimulator;
 
             string executablePath = Path.Combine(
@@ -72,6 +72,11 @@ public class GameHandler
                     "linux_x64", 
                     type == GameType.EuroTruckSimulator2 ? "eurotrucks2" 
                                                          : "amtrucks"
+                    gamePath, 
+                    "bin", 
+                    "linux_x64", 
+                    type == GameType.EuroTruckSimulator2 ? "eurotrucks2" 
+                                                         : "amtrucks"
                 # endif
             );
 
@@ -81,14 +86,25 @@ public class GameHandler
                 #if WINDOWS
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), 
                     gameName
-                #elif MACOSX
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "Library", "Application Support", gameName
                 #else
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".local", "share", gameName
                 #endif
             );
+
+            string version = "Unknown";
+            # if WINDOWS
+                try
+                {
+                    FileVersionInfo info = FileVersionInfo.GetVersionInfo(executablePath);
+                    version = info.FileVersion != null ? (info.FileVersion.Split(".")[0] + "." + info.FileVersion.Split(".")[1]) : version;
+                }
+                catch (FileNotFoundException ex)
+                {
+                    Logger.Warn($"Executable not found at '{executablePath}': {ex.Message}");
+                }
+            # endif
+            // TODO: Is there a way we can somehow get the version automatically on linux?
 
             Installations.Add(new Installation
             {
@@ -96,9 +112,10 @@ public class GameHandler
                 Path = gamePath,
                 DocumentsPath = documentsPath,
                 ExecutablePath = executablePath,
+                Version = version
             });
 
             Installation installation = Installations[^1];
-        });
+        }
     }
 }

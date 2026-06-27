@@ -10,7 +10,7 @@
 
     <!-- Sidebar Buttons -->
     <Style Selector="Button.sidebar">
-        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Background" Value="#00000000"/>
         <Setter Property="Foreground" Value="{StaticResource SolidColor}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="CornerRadius" Value="6"/>
@@ -19,12 +19,16 @@
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
         <Setter Property="Margin" Value="4 0 0 0"/>
     </Style>
-    <Style Selector="Button.sidebar.Selected Grid i|Icon">
+    <Style Selector="Button.sidebar.Selected">
+        <Setter Property="Background" Value="{DynamicResource Gray5Color}"/>
+    </Style>
+    <!--<Style Selector="Button.sidebar.Selected Grid i|Icon">
         <Setter Property="Foreground" Value="{StaticResource AccentForeground}"/>
     </Style>
     <Style Selector="Button.sidebar.Selected Grid TextBlock">
         <Setter Property="Foreground" Value="{StaticResource AccentForeground}"/>
     </Style>
+    -->
 
     <!-- Titlebar Buttons -->
     <Style Selector="Button.titlebar">

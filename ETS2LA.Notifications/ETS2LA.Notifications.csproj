@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ETS2LA.Logging\ETS2LA.Logging.csproj" />
+  </ItemGroup>
+
 </Project>

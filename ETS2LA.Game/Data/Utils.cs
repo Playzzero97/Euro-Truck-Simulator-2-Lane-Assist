@@ -297,9 +297,11 @@ public static class DataUtils
             // Example line:
             // 00:00:12.537 : [fs] device C:/Users/Tumppi066/Documents/Euro Truck Simulator 2/mod/5.projectjapan-158-map.scs mounted.
             if (line.Contains("mod", StringComparison.OrdinalIgnoreCase) &&
-                line.Contains(".scs mounted.", StringComparison.OrdinalIgnoreCase))
+                line.Contains(".scs mounted", StringComparison.OrdinalIgnoreCase))
             {
-                foundMods.Add(line.Split("[fs] device ")[1].Split(" mounted.")[0]);
+                string filename = line.Split("[fs] device ")[1].Split(" mounted")[0];
+                if (!foundMods.Contains(filename))
+                    foundMods.Add(filename);
             }
         }
         return foundMods;
@@ -319,13 +321,13 @@ public static class DataUtils
             {
                 // Example line:
                 // 00:00:12.537 : game
-                if (line.Split(" : ")[1].Trim().Equals("game", StringComparison.OrdinalIgnoreCase))
+                if (line.Split(" : ")[1].Trim().StartsWith("game", StringComparison.OrdinalIgnoreCase))
                 {
                     isRunning = true;
                 }
                 // Example line:
                 // 00:00:12.537 : exit
-                if (line.Split(" : ")[1].Trim().Equals("exit", StringComparison.OrdinalIgnoreCase))
+                if (line.Split(" : ")[1].Trim().StartsWith("exit", StringComparison.OrdinalIgnoreCase))
                 {
                     isRunning = false;
                 }

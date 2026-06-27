@@ -1,0 +1,8 @@
+v*:
+  tag_push:
+    - stages:
+        - name: Create CNB Release
+          type: git:release
+          options:
+            latest: true
+            description: Release created from tag.

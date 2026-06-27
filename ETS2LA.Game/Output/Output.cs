@@ -1,8 +1,9 @@
+using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
 
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
-using System.Runtime.InteropServices;
+using Avalonia.Controls.Embedding.Offscreen;
 
 namespace ETS2LA.Game.Output;
 
@@ -115,7 +116,6 @@ public class GameOutput
         if (secondsSinceLastTry < 5f)
             return;
 
-
         try
         {
         #if WINDOWS
@@ -138,7 +138,8 @@ public class GameOutput
             modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);
         #endif
         }
-        catch (Exception ex)
+        
+        catch 
         {
             //Logging.Logger.Error("Failed to open memory: " + ex.Message);
             legacyAccessor = null;
@@ -295,11 +296,14 @@ public class GameOutput
         Stopwatch tickTimer = Stopwatch.StartNew();
         while(true)
         {
-            float timeLeft = TickRate - (float)tickTimer.Elapsed.TotalSeconds;
-            if (timeLeft > 0)
-            {   
-                Thread.Sleep((int)(timeLeft * 1000));
-                continue;
+            double timeLeft = TickRate - tickTimer.Elapsed.TotalSeconds;
+            if (timeLeft > 0 && timeLeft < TickRate)
+            {
+                if (timeLeft * 1000 > 0.5)
+                {
+                    Thread.Sleep((int)(timeLeft * 1000));
+                    continue;
+                }
             }
 
             // These || need to be added to silence warnings...
@@ -326,22 +330,24 @@ public class GameOutput
             }
 
             IsReset = false;
-            foreach (var channel in Channels.Values)
+            try
             {
-                if (channel.Properties == null || channel.Variables == null)
-                    continue;
-
-                if (channel.LastUpdate.Elapsed.TotalSeconds > channel.Definition.Timeout)
+                foreach (var channel in Channels.Values)
                 {
-                    Logging.Logger.Debug($"Channel {channel.Definition.Id} timed out, removing.");
-                    Channels.Remove(channel.Definition.Id);
-                    continue;
+                    if (channel.Properties == null || channel.Variables == null)
+                        continue;
+
+                    if (channel.LastUpdate.Elapsed.TotalSeconds > channel.Definition.Timeout)
+                    {
+                        Channels.Remove(channel.Definition.Id);
+                        continue;
+                    }
+
+                    ProcessChannel(channel);
                 }
+            } catch {}
 
-                ProcessChannel(channel);
-            }
-
-            double time = DateTimeOffset.Now.ToUnixTimeMilliseconds() / 1000.0;
+            double time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
             foreach (var kvp in curFrameFloats)
             {
                 string propName = kvp.Key;
@@ -353,28 +359,24 @@ public class GameOutput
 
                 if(propName == "steering")
                 {
-                    #if MACOSX
-                        WriteFloatPtr(_modernPtr, 0, weightedValue);
-                        WriteBoolPtr(_modernPtr, 4, weightedValue != 0.0f);
-                        WriteDoublePtr(_modernPtr, 5, time);
-                    #else
-                        WriteFloat(modernAccessor, 0, weightedValue);
-                        WriteBool(modernAccessor, 4, weightedValue != 0.0f);
-                        WriteDouble(modernAccessor, 5, time);
-                    #endif
-                        WriteFloat(legacyAccessor, legacyShmOffsets[propName], -weightedValue);
+                    WriteFloat(modernAccessor, 0, weightedValue);
+                    WriteBool(modernAccessor, 4, weightedValue != 0.0f);
+                    WriteDouble(modernAccessor, 5, time);
                 }
                 else if (propName == "acceleration")
                 {
-                #if MACOSX
-                    WriteFloatPtr(_modernPtr, 13, weightedValue);
-                    WriteBoolPtr(_modernPtr, 17, weightedValue != 0.0f);
-                    WriteDoublePtr(_modernPtr, 18, time);
-                #else
-                    WriteFloat(modernAccessor, 13, weightedValue);
-                    WriteBool(modernAccessor, 17, weightedValue != 0.0f);
-                    WriteDouble(modernAccessor, 18, time);
-                #endif
+                    // TODO: Fix acceleration via the new accessor (any acceleration is max?)
+                    // WriteFloat(modernAccessor, 13, weightedValue);
+                    // WriteBool(modernAccessor, 17, weightedValue != 0.0f);
+                    // WriteDouble(modernAccessor, 18, time);
+                    if (weightedValue > 0)
+                    {
+                        WriteFloat(legacyAccessor, legacyShmOffsets["aforward"], weightedValue);
+                    }
+                    else
+                    {
+                        WriteFloat(legacyAccessor, legacyShmOffsets["abackward"], -weightedValue);
+                    }
                 }
                 else
                 {
