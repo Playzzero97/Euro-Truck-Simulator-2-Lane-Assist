@@ -4,8 +4,6 @@
     "projects": [
       "ETS2LA.Backend/ETS2LA.Backend.csproj",
       "ETS2LA.Shared/ETS2LA.Shared.csproj",
-      "Plugins/ExampleProvider/ExampleProvider.csproj",
-      "Plugins/ExampleConsumer/ExampleConsumer.csproj",
       "ETS2LA.Settings/ETS2LA.Settings.csproj",
       "ETS2LA.Logging/ETS2LA.Logging.csproj",
       "ETS2LA.Telemetry/ETS2LA.Telemetry.csproj",
@@ -14,10 +12,8 @@
       "ETS2LA/ETS2LA.csproj",
       "ETS2LA.Controls/ETS2LA.Controls.csproj",
       "ETS2LA.Audio/ETS2LA.Audio.csproj",
-      "Plugins/VisualizationSockets/VisualizationSockets.csproj",
       "TruckLib/TruckLib/TruckLib.csproj",
-      "ETS2LA.Overlay/ETS2LA.Overlay.csproj",
-      "Plugins/InternalVisualization/InternalVisualization.csproj"
+      "ETS2LA.Overlay/ETS2LA.Overlay.csproj"
     ]
   }
 }

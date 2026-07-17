@@ -113,7 +113,7 @@ public class CameraProvider
             #if WINDOWS
                 _mmf = MemoryMappedFile.OpenExisting(mmapName);
             # elif MACOSX
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif

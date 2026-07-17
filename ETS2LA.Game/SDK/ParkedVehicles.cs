@@ -32,6 +32,7 @@ public class ParkedVehiclesProvider
 
     string mmapName = "Local\\ETS2LAParkedVehicles";
     string mmapNameLinux = "/dev/shm/ETS2LAParkedVehicles";
+    string mmapNameMacOS = "/tmp/ETS2LAParkedVehicles";
     int mmapSize = 1720;
 
     private MemoryMappedFile? _mmf;
@@ -88,6 +89,8 @@ public class ParkedVehiclesProvider
         {
             #if WINDOWS
                 _mmf = MemoryMappedFile.OpenExisting(mmapName);
+            #elif MACOSX
+                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif

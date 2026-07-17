@@ -6,6 +6,7 @@ using ETS2LA.Logging;
 using System.IO.MemoryMappedFiles;
 using System.Numerics;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace ETS2LA.Game.Telemetry;
 
@@ -29,9 +30,13 @@ public class GameTelemetry
     private GameTelemetryData? currentData = new();
     private bool shutdown = false;
 
+#if MACOSX
+    private IntPtr _telemetryPtr = IntPtr.Zero;
+#endif
 
     string mmapName = "Local\\SCSTelemetry";
     string mmapNameLinux = "/dev/shm/SCSTelemetry";
+    string mmapNameMACOSX = "/SCSTelemetry";
 
     int mmapSize = 32 * 1024;
     int stringSize = 64;
@@ -40,6 +45,53 @@ public class GameTelemetry
     private MemoryMappedViewAccessor? accessor;
     private byte[] buffer = Array.Empty<byte>();
     private readonly Stopwatch sinceReconnect = Stopwatch.StartNew();
+
+    #if MACOSX
+    public static class MacScsShm
+    {
+        const int O_RDONLY = 0;
+        const int PROT_READ = 1;
+        const int MAP_SHARED = 0x0001;
+
+        [DllImport("libSystem.B.dylib", SetLastError = true)]
+        static extern int shm_open(string name, int oflag, int mode);
+
+        [DllImport("libSystem.B.dylib", SetLastError = true)]
+        static extern IntPtr mmap(
+            IntPtr addr,
+            ulong length,
+            int prot,
+            int flags,
+            int fd,
+            long offset);
+
+        [DllImport("libSystem.B.dylib")]
+        static extern int close(int fd);
+
+        public static IntPtr Map(string name, int size)
+        {
+            int fd = shm_open(name, O_RDONLY, 0);
+
+            if (fd < 0)
+                throw new Exception($"shm_open failed for {name}");
+
+            IntPtr ptr = mmap(
+                IntPtr.Zero,
+                (ulong)size,
+                PROT_READ,
+                MAP_SHARED,
+                fd,
+                0);
+
+            close(fd);
+
+            if (ptr == (IntPtr)(-1))
+                throw new Exception("mmap failed");
+
+            return ptr;
+        }
+    }
+    #endif
     
     Dictionary<int, string> intToDays = new Dictionary<int, string>
     {
@@ -127,18 +179,25 @@ public class GameTelemetry
 
     private bool TryOpenMemory()
     {
+        #if MACOSX
+        if (_telemetryPtr != IntPtr.Zero)
+            return true;
+        #else
         if (accessor != null)
             return true;
+        #endif
 
         try
         {
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
-            # else
+                accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            #elif MACOSX
+                _telemetryPtr = MacScsShm.Map(mmapNameMACOSX, mmapSize);
+            #else
                 mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
-            # endif
-
-            accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+                accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            #endif
             return true;
         }
         catch (FileNotFoundException)
@@ -168,6 +227,9 @@ public class GameTelemetry
         accessor = null;
         mmf?.Dispose();
         mmf = null;
+        #if MACOSX
+        _telemetryPtr = IntPtr.Zero;
+        #endif
     }
 
     private void Update()
@@ -183,7 +245,11 @@ public class GameTelemetry
 
         try
         {
+            #if MACOSX
+            Marshal.Copy(_telemetryPtr, buffer, 0, mmapSize);
+            #else
             accessor!.ReadArray(0, buffer, 0, mmapSize);
+            #endif
         }
         catch (Exception)
         {

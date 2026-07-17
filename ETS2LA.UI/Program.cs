@@ -13,7 +13,6 @@ namespace ETS2LA.UI;
 /// </summary>
 public class Program
 {
-    // Avalonia configuration
     public static AppBuilder BuildAvaloniaApp()
     {
         IconProvider.Current
@@ -25,12 +24,27 @@ public class Program
             .UseReactiveUI();
     }
 
-    // Called from ETS2LA entrypoint.
     public static void Main(string[] args, Action? afterSetup = null)
     {
         var builder = BuildAvaloniaApp();
-        if (afterSetup != null)
-            builder = builder.AfterSetup(_ => afterSetup());
+
+        #if MACOSX
+            builder = builder.AfterSetup(_ =>
+            {
+                afterSetup?.Invoke();
+
+                var timer = new Avalonia.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(1000.0 / 60.0)
+                };
+                timer.Tick += (_, _) => ETS2LA.Overlay.OverlayHandler.Current.RenderFrame();
+                timer.Start();
+            });
+        #else
+            if (afterSetup != null)
+                builder = builder.AfterSetup(_ => afterSetup());
+        #endif
+
         builder.StartWithClassicDesktopLifetime(args);
     }
 }

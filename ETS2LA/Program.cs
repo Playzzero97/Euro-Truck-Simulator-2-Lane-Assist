@@ -102,6 +102,14 @@ internal static class Program
             }
         # endif
 
+        # if MACOSX
+            if (!OverlayHandler.Current.InitWindowOnMainThread())
+            {
+                Console.WriteLine("Failed to initialize overlay window");
+            }
+        # endif
+        
+
         // Gotta wait for the UI thread to close (i.e. user closed the window)
         // and then tell the backend to shutdown too.
         UI.Program.Main(args);

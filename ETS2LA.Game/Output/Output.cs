@@ -4,6 +4,7 @@ using ETS2LA.Backend.Events;
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
 using Avalonia.Controls.Embedding.Offscreen;
+using System.Runtime.InteropServices;
 
 namespace ETS2LA.Game.Output;
 
@@ -23,9 +24,9 @@ public class GameOutput
     private float TickRate = 1f / 60f;
 
     private Stopwatch SinceTriedMemoryAccess = new Stopwatch();
-   private bool MemoryAccessAvailable =>
+    private bool MemoryAccessAvailable =>
     #if MACOSX
-        legacyAccessor != null && _modernPtr != IntPtr.Zero;
+        legacyAccessor != null;
     #else
         legacyAccessor != null && modernAccessor != null;
     #endif
@@ -36,7 +37,7 @@ public class GameOutput
 
     string legacyMapName = "Local\\SCSControls";
     string legacyMapNameLinux = "/dev/shm/SCS/SCSControls";
-    string legacyNameMacOS = "/private/tmp/SCS/SCSControls";
+    string legacyMapNameMacOS = "/private/tmp/SCS/SCSControls";
     int legacyMapSize = 0;
     Dictionary<string, int> legacyShmOffsets = new Dictionary<string, int>();
     MemoryMappedFile? legacyMmf = null;
@@ -49,7 +50,7 @@ public class GameOutput
 
     string modernMapName = "Local\\ETS2LAPluginInput";
     string modernMapNameLinux = "/dev/shm/ETS2LAPluginInput";
-    string modernMapNameMacOS = "/private/tmp/ETS2LAPluginInput";
+    string modernMapNameMacOS = "/ETS2LAPluginInput";
     int modernMapSize = 26;
     MemoryMappedFile? modernMmf = null;
     MemoryMappedViewAccessor? modernAccessor = null;
@@ -123,14 +124,21 @@ public class GameOutput
             modernMmf = MemoryMappedFile.OpenExisting(modernMapName);
             legacyAccessor = legacyMmf.CreateViewAccessor(0, legacyMapSize, MemoryMappedFileAccess.Write);
             modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);
-        #elif MACOSX
-            Logging.Logger.Debug($"Trying to open legacy: {legacyNameMacOS}");
-            legacyMmf = MemoryMappedFile.CreateFromFile(legacyNameMacOS, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite);
+       #elif MACOSX
+            Logging.Logger.Debug($"Trying to open legacy: {legacyMapNameMacOS}");
+            legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameMacOS, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite);
             Logging.Logger.Debug("legacyMmf opened");
             legacyAccessor = legacyMmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Write);
             Logging.Logger.Debug($"legacyAccessor: {legacyAccessor != null}");
-            _modernPtr = MacOutputShm.Open("/ETS2LAPluginInput", modernMapSize);
-            Logging.Logger.Debug($"modernPtr: {_modernPtr}");
+            try
+            {
+                _modernPtr = MacOutputShm.Open(modernMapNameMacOS, modernMapSize);
+                Logging.Logger.Debug($"modernPtr: {_modernPtr}");
+            }
+            catch
+            {
+                Logging.Logger.Debug("Modern output not available, continuing with legacy only.");
+            }
         #else
             legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameLinux);
             modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
@@ -142,8 +150,14 @@ public class GameOutput
         catch 
         {
             //Logging.Logger.Error("Failed to open memory: " + ex.Message);
+            #if MACOSX
+            legacyMmf?.Dispose();
+            legacyMmf = null;
+            legacyAccessor = null;
+            #else
             legacyAccessor = null;
             modernAccessor = null;
+            #endif
             _modernPtr = IntPtr.Zero;
         }
 
@@ -200,7 +214,18 @@ public class GameOutput
             legacyAccessor.Flush();
         }
 
-        if(modernAccessor != null)
+       #if MACOSX
+        if (_modernPtr != IntPtr.Zero)
+        {
+            WriteFloatPtr(_modernPtr, 0, 0);
+            WriteBoolPtr(_modernPtr, 4, false);
+            WriteDoublePtr(_modernPtr, 5, 0);
+            WriteFloatPtr(_modernPtr, 13, 0);
+            WriteBoolPtr(_modernPtr, 17, false);
+            WriteDoublePtr(_modernPtr, 18, 0);
+        }
+#else
+        if (modernAccessor != null)
         {
             WriteFloat(modernAccessor, 0, 0);
             WriteBool(modernAccessor, 4, false);
@@ -208,9 +233,9 @@ public class GameOutput
             WriteFloat(modernAccessor, 13, 0);
             WriteBool(modernAccessor, 17, false);
             WriteDouble(modernAccessor, 18, 0);
-            
             modernAccessor.Flush();
         }
+#endif
 
         IsReset = true;
         Logging.Logger.Debug("Reset outputs to default values.");
@@ -309,8 +334,8 @@ public class GameOutput
             // These || need to be added to silence warnings...
             // If someone knows how to make the compiler understand that MemoryAccessAvailable ensures
             // that the accessors are not null, then please tell me.
-           #if MACOSX
-                if (!MemoryAccessAvailable || legacyAccessor == null || _modernPtr == IntPtr.Zero)
+            #if MACOSX
+                if (!MemoryAccessAvailable || legacyAccessor == null)
             #else
                 if (!MemoryAccessAvailable || legacyAccessor == null || modernAccessor == null)
             #endif
@@ -357,11 +382,22 @@ public class GameOutput
                 float weightedValue = values.Sum(v => v.Item1 * v.Item2) / totalWeight;
                 weightedValue = Math.Clamp(weightedValue, -1f, 1f);
 
-                if(propName == "steering")
+
+                if (propName == "steering")
                 {
-                    WriteFloat(modernAccessor, 0, weightedValue);
-                    WriteBool(modernAccessor, 4, weightedValue != 0.0f);
-                    WriteDouble(modernAccessor, 5, time);
+                    #if MACOSX
+                        if (_modernPtr != IntPtr.Zero)
+                        {
+                            WriteFloatPtr(_modernPtr, 0, weightedValue);
+                            WriteBoolPtr(_modernPtr, 4, weightedValue != 0.0f);
+                            WriteDoublePtr(_modernPtr, 5, time);
+                        }
+                    #else
+                        WriteFloat(modernAccessor, 0, weightedValue);
+                        WriteBool(modernAccessor, 4, weightedValue != 0.0f);
+                        WriteDouble(modernAccessor, 5, time);
+                    #endif
+                        WriteFloat(legacyAccessor, legacyShmOffsets[propName], weightedValue);
                 }
                 else if (propName == "acceleration")
                 {
@@ -369,19 +405,22 @@ public class GameOutput
                     // WriteFloat(modernAccessor, 13, weightedValue);
                     // WriteBool(modernAccessor, 17, weightedValue != 0.0f);
                     // WriteDouble(modernAccessor, 18, time);
-                    if (weightedValue > 0)
-                    {
-                        WriteFloat(legacyAccessor, legacyShmOffsets["aforward"], weightedValue);
-                    }
-                    else
-                    {
-                        WriteFloat(legacyAccessor, legacyShmOffsets["abackward"], -weightedValue);
-                    }
+                    #if MACOSX
+                        if (_modernPtr != IntPtr.Zero)
+                        {
+                            WriteFloatPtr(_modernPtr, 13, weightedValue);
+                            WriteBoolPtr(_modernPtr, 17, weightedValue != 0.0f);
+                            WriteDoublePtr(_modernPtr, 18, time);
+                        }
+                    #else
+                        WriteFloat(modernAccessor, 13, weightedValue);
+                        WriteBool(modernAccessor, 17, weightedValue != 0.0f);
+                        WriteDouble(modernAccessor, 18, time);
+                    #endif
                 }
-                else
-                {
-                    WriteFloat(legacyAccessor!, legacyShmOffsets[propName], weightedValue);
-                }
+                Logging.Logger.Debug($"steering={weightedValue} ptr={_modernPtr}");
+                // or for accel
+                Logging.Logger.Debug($"accel={weightedValue} ptr={_modernPtr}");
             }
 
             #if MACOSX

@@ -72,11 +72,6 @@ public class GameHandler
                     "linux_x64", 
                     type == GameType.EuroTruckSimulator2 ? "eurotrucks2" 
                                                          : "amtrucks"
-                    gamePath, 
-                    "bin", 
-                    "linux_x64", 
-                    type == GameType.EuroTruckSimulator2 ? "eurotrucks2" 
-                                                         : "amtrucks"
                 # endif
             );
 
@@ -86,6 +81,9 @@ public class GameHandler
                 #if WINDOWS
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), 
                     gameName
+                #elif MACOSX
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Library", "Application Support", gameName
                 #else
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".local", "share", gameName
@@ -102,6 +100,26 @@ public class GameHandler
                 catch (FileNotFoundException ex)
                 {
                     Logger.Warn($"Executable not found at '{executablePath}': {ex.Message}");
+                }
+            # elif MACOSX
+                try
+                {
+                    string plistPath = Path.Combine(gamePath, "Info.plist");
+                    if (File.Exists(plistPath))
+                    {
+                        string plist = File.ReadAllText(plistPath);
+                        int idx = plist.IndexOf("<key>CFBundleShortVersionString</key>");
+                        if (idx >= 0)
+                        {
+                            int start = plist.IndexOf("<string>", idx) + "<string>".Length;
+                            int end = plist.IndexOf("</string>", start);
+                            version = plist.Substring(start, end - start);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"Failed to read version from Info.plist: {ex.Message}");
                 }
             # endif
             // TODO: Is there a way we can somehow get the version automatically on linux?
