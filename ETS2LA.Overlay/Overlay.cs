@@ -186,8 +186,7 @@ public class OverlayHandler
             
             next += interval;
 
-            if (OperatingSystem.IsMacOS()) MacOverlay.HoldMainThread();
-
+            void UpdateInput() { // macOS: runs on the main thread, see MacOverlay
             if (!isInteracting) { 
                 // This has to be called each frame to properly update the flags.
                 // For whatever reason they are set back to default. Shouldn't affect
@@ -207,16 +206,18 @@ public class OverlayHandler
             }
 
             if (!OperatingSystem.IsMacOS()) GLFW.PollEvents(); // macOS: Photino's main loop handles the events
+            }
+            if (OperatingSystem.IsMacOS()) MacOverlay.RunOnMainThread("input", UpdateInput); else UpdateInput();
 
             // Skip rendering if we're minimized, though this should actually
             // never happen for the overlay.
             if (GLFW.GetWindowAttrib(glfwWindow, GLFW.GLFW_ICONIFIED) != 0)
             {
-                if (OperatingSystem.IsMacOS()) MacOverlay.ReleaseMainThread();
                 ImGuiImplGLFW.Sleep(10);
                 continue;
             }
 
+            void RenderFrame() { // macOS: runs on the main thread, see MacOverlay
             GLFW.MakeContextCurrent(glfwWindow);
 
             ImGuiImplOpenGL3.NewFrame();
@@ -275,7 +276,8 @@ public class OverlayHandler
 
             GLFW.SwapInterval(0); // disable vsync
             GLFW.SwapBuffers(glfwWindow);
-            if (OperatingSystem.IsMacOS()) MacOverlay.ReleaseMainThread();
+            }
+            if (OperatingSystem.IsMacOS()) MacOverlay.RunOnMainThread("frame", RenderFrame); else RenderFrame();
 
             double remaining = next - fs.Elapsed.TotalMilliseconds;
             if (remaining > 1.0)
@@ -467,6 +469,9 @@ public class OverlayHandler
 
     private bool InitImGui()
     {
+        if (OperatingSystem.IsMacOS() && !MacOverlay.IsMainThread)
+            return MacOverlay.InitImGuiOnMainThread(InitImGui);
+
         imGuiContext = ImGui.CreateContext();
         ImGui.SetCurrentContext(imGuiContext);
         
@@ -573,7 +578,7 @@ public class OverlayHandler
     private bool InitGLFW()
     {
         if (OperatingSystem.IsMacOS() && !MacOverlay.IsMainThread)
-            return MacOverlay.InitOnMainThread(InitGLFW);
+            return MacOverlay.InitGLFWOnMainThread(InitGLFW);
 
         unsafe
         {
@@ -600,6 +605,7 @@ public class OverlayHandler
         }
 
         Logger.Info(_("Initializing GLFW..."));
+        if (OperatingSystem.IsMacOS()) GLFW.InitHint(GLFW.GLFW_COCOA_CHDIR_RESOURCES, 0); // keep the working directory
         GLFW.Init();
         GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
         GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -643,7 +649,7 @@ public class OverlayHandler
         # endif
 
         if (OperatingSystem.IsMacOS())
-            unsafe { MacOverlay.FloatAboveGame((nint)GLFW.GetCocoaWindow(glfwWindow)); }
+            unsafe { MacOverlay.FloatAboveGame((nint)GLFW.GetCocoaWindow(glfwWindow)); GLFW.MakeContextCurrent(glfwWindow); }
 
         return true;
     }
