@@ -1,7 +1,7 @@
 using ETS2LA.Shared;
 using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
-using ETS2LA.Game.Telemetry;
+using static ETS2LA.Translations.T;
 
 using System.Numerics;
 using System.IO.MemoryMappedFiles;
@@ -52,7 +52,6 @@ public class CameraProvider
 
     string mmapName = "Local\\ETS2LACameraProps";
     string mmapNameLinux = "/dev/shm/ETS2LACameraProps";
-    string mmapNameMacOS = "/tmp/ETS2LACameraProps";
     int mmapSize = 128;
 
     private MemoryMappedFile? _mmf;
@@ -98,7 +97,7 @@ public class CameraProvider
             try { Update(); }
             catch (Exception ex)
             {
-                Logger.Error(ex.ToString(), "Error in camera update loop.");
+                Logger.Error(ex.ToString(), _("Error in camera update loop."));
             }
         }
     }
@@ -112,8 +111,6 @@ public class CameraProvider
         {
             #if WINDOWS
                 _mmf = MemoryMappedFile.OpenExisting(mmapName);
-            # elif MACOSX
-                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif
@@ -130,7 +127,7 @@ public class CameraProvider
         catch (Exception ex)
         {
             CloseMemory();
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Logger.Error(_("Error initializing memory mapped file: {0}", ex.Message));
             Thread.Sleep(10000);
             return false;
         }

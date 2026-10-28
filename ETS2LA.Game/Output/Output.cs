@@ -1,10 +1,9 @@
 using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
+using static ETS2LA.Translations.T;
 
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
-using Avalonia.Controls.Embedding.Offscreen;
-using System.Runtime.InteropServices;
 
 namespace ETS2LA.Game.Output;
 
@@ -24,12 +23,7 @@ public class GameOutput
     private float TickRate = 1f / 60f;
 
     private Stopwatch SinceTriedMemoryAccess = new Stopwatch();
-    private bool MemoryAccessAvailable =>
-    #if MACOSX
-        legacyAccessor != null;
-    #else
-        legacyAccessor != null && modernAccessor != null;
-    #endif
+    private bool MemoryAccessAvailable => legacyAccessor != null && modernAccessor != null;
     private bool IsReset = false;
 
     // Legacy uses a virtual controller provided through the SCSControls plugin. This
@@ -37,12 +31,10 @@ public class GameOutput
 
     string legacyMapName = "Local\\SCSControls";
     string legacyMapNameLinux = "/dev/shm/SCS/SCSControls";
-    string legacyMapNameMacOS = "/private/tmp/SCS/SCSControls";
     int legacyMapSize = 0;
     Dictionary<string, int> legacyShmOffsets = new Dictionary<string, int>();
     MemoryMappedFile? legacyMmf = null;
     MemoryMappedViewAccessor? legacyAccessor = null;
-    private IntPtr _modernPtr = IntPtr.Zero;
 
     // Modern uses ETS2LAPlugin to write directly to the game's memory. This does
     // not however work on all devices, and it doesn't provide such an extensive list
@@ -50,38 +42,9 @@ public class GameOutput
 
     string modernMapName = "Local\\ETS2LAPluginInput";
     string modernMapNameLinux = "/dev/shm/ETS2LAPluginInput";
-    string modernMapNameMacOS = "/ETS2LAPluginInput";
     int modernMapSize = 26;
     MemoryMappedFile? modernMmf = null;
     MemoryMappedViewAccessor? modernAccessor = null;
-
-    #if MACOSX
-    static class MacOutputShm
-    {
-        const int O_RDWR = 2;
-        const int PROT_READ = 1, PROT_WRITE = 2;
-        const int MAP_SHARED = 0x0001;
-
-        [DllImport("libSystem.B.dylib", SetLastError = true)]
-        static extern int shm_open(string name, int oflag, int mode);
-
-        [DllImport("libSystem.B.dylib", SetLastError = true)]
-        static extern IntPtr mmap(IntPtr addr, ulong length, int prot, int flags, int fd, long offset);
-
-        [DllImport("libSystem.B.dylib")]
-        static extern int close(int fd);
-
-        public static IntPtr Open(string name, int size)
-        {
-            int fd = shm_open(name, O_RDWR, 0);
-            if (fd < 0) throw new Exception($"shm_open failed for {name}, errno={Marshal.GetLastWin32Error()}");
-            IntPtr ptr = mmap(IntPtr.Zero, (ulong)size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            close(fd);
-            if (ptr == (IntPtr)(-1)) throw new Exception("mmap failed");
-            return ptr;
-        }
-    }
-    #endif
 
     public GameOutput()
     {
@@ -105,7 +68,7 @@ public class GameOutput
         TryOpenMemory();
         // Then we start listening to events and spin up the update thread.
         Events.Current.Subscribe<ControlEvent>(EventString, OnControlEvent);
-        Task.Run(Tick);
+        Task.Factory.StartNew(Tick, TaskCreationOptions.LongRunning);
     }
 
     private void TryOpenMemory()
@@ -119,50 +82,25 @@ public class GameOutput
 
         try
         {
-        #if WINDOWS
-            legacyMmf = MemoryMappedFile.OpenExisting(legacyMapName);
-            modernMmf = MemoryMappedFile.OpenExisting(modernMapName);
+            #if WINDOWS
+                legacyMmf = MemoryMappedFile.OpenExisting(legacyMapName);
+                modernMmf = MemoryMappedFile.OpenExisting(modernMapName);
+            # else
+                legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameLinux);
+                modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
+            # endif
             legacyAccessor = legacyMmf.CreateViewAccessor(0, legacyMapSize, MemoryMappedFileAccess.Write);
             modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);
-       #elif MACOSX
-            Logging.Logger.Debug($"Trying to open legacy: {legacyMapNameMacOS}");
-            legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameMacOS, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite);
-            Logging.Logger.Debug("legacyMmf opened");
-            legacyAccessor = legacyMmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Write);
-            Logging.Logger.Debug($"legacyAccessor: {legacyAccessor != null}");
-            try
-            {
-                _modernPtr = MacOutputShm.Open(modernMapNameMacOS, modernMapSize);
-                Logging.Logger.Debug($"modernPtr: {_modernPtr}");
-            }
-            catch
-            {
-                Logging.Logger.Debug("Modern output not available, continuing with legacy only.");
-            }
-        #else
-            legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameLinux);
-            modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
-            legacyAccessor = legacyMmf.CreateViewAccessor(0, legacyMapSize, MemoryMappedFileAccess.Write);
-            modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);
-        #endif
-        }
-        
-        catch 
+        } 
+        catch
         {
-            //Logging.Logger.Error("Failed to open memory: " + ex.Message);
-            #if MACOSX
-            legacyMmf?.Dispose();
-            legacyMmf = null;
-            legacyAccessor = null;
-            #else
+            // Logging.Logger.Error("Failed to open memory: " + ex.Message);
             legacyAccessor = null;
             modernAccessor = null;
-            #endif
-            _modernPtr = IntPtr.Zero;
         }
 
-        Logging.Logger.Debug(MemoryAccessAvailable ? "Successfully opened memory for output." 
-                                                  : "Memory not available for output.");
+        Logging.Logger.Debug(MemoryAccessAvailable ? _("Successfully opened memory for output.")
+                                                  : _("Memory not available for output, please ensure the game is running and reinstall the SDK if necessary."));
         SinceTriedMemoryAccess.Restart();
     }
 
@@ -214,18 +152,7 @@ public class GameOutput
             legacyAccessor.Flush();
         }
 
-       #if MACOSX
-        if (_modernPtr != IntPtr.Zero)
-        {
-            WriteFloatPtr(_modernPtr, 0, 0);
-            WriteBoolPtr(_modernPtr, 4, false);
-            WriteDoublePtr(_modernPtr, 5, 0);
-            WriteFloatPtr(_modernPtr, 13, 0);
-            WriteBoolPtr(_modernPtr, 17, false);
-            WriteDoublePtr(_modernPtr, 18, 0);
-        }
-#else
-        if (modernAccessor != null)
+        if(modernAccessor != null)
         {
             WriteFloat(modernAccessor, 0, 0);
             WriteBool(modernAccessor, 4, false);
@@ -233,9 +160,9 @@ public class GameOutput
             WriteFloat(modernAccessor, 13, 0);
             WriteBool(modernAccessor, 17, false);
             WriteDouble(modernAccessor, 18, 0);
+            
             modernAccessor.Flush();
         }
-#endif
 
         IsReset = true;
         Logging.Logger.Debug("Reset outputs to default values.");
@@ -301,21 +228,6 @@ public class GameOutput
         channel.BoolsProcessed = true;
     }
 
-    private void WriteFloatPtr(IntPtr ptr, int offset, float value)
-    {
-        Marshal.WriteInt32(ptr + offset, BitConverter.SingleToInt32Bits(value));
-    }
-
-    private void WriteBoolPtr(IntPtr ptr, int offset, bool value)
-    {
-        Marshal.WriteByte(ptr + offset, value ? (byte)1 : (byte)0);
-    }
-
-    private void WriteDoublePtr(IntPtr ptr, int offset, double value)
-    {
-        Marshal.WriteInt64(ptr + offset, BitConverter.DoubleToInt64Bits(value));
-    }
-
     public void Tick()
     {
         Stopwatch tickTimer = Stopwatch.StartNew();
@@ -334,11 +246,7 @@ public class GameOutput
             // These || need to be added to silence warnings...
             // If someone knows how to make the compiler understand that MemoryAccessAvailable ensures
             // that the accessors are not null, then please tell me.
-            #if MACOSX
-                if (!MemoryAccessAvailable || legacyAccessor == null)
-            #else
-                if (!MemoryAccessAvailable || legacyAccessor == null || modernAccessor == null)
-            #endif
+            if (!MemoryAccessAvailable || legacyAccessor == null || modernAccessor == null)
             {
                 TryOpenMemory();
                 tickTimer.Restart();
@@ -382,53 +290,42 @@ public class GameOutput
                 float weightedValue = values.Sum(v => v.Item1 * v.Item2) / totalWeight;
                 weightedValue = Math.Clamp(weightedValue, -1f, 1f);
 
-
-                if (propName == "steering")
+                if(propName == "steering")
                 {
-                    #if MACOSX
-                        if (_modernPtr != IntPtr.Zero)
-                        {
-                            WriteFloatPtr(_modernPtr, 0, weightedValue);
-                            WriteBoolPtr(_modernPtr, 4, weightedValue != 0.0f);
-                            WriteDoublePtr(_modernPtr, 5, time);
-                        }
-                    #else
-                        WriteFloat(modernAccessor, 0, weightedValue);
-                        WriteBool(modernAccessor, 4, weightedValue != 0.0f);
-                        WriteDouble(modernAccessor, 5, time);
-                    #endif
-                        WriteFloat(legacyAccessor, legacyShmOffsets[propName], weightedValue);
+                    WriteFloat(modernAccessor, 0, weightedValue);
+                    WriteBool(modernAccessor, 4, weightedValue != 0.0f);
+                    WriteDouble(modernAccessor, 5, time);
                 }
                 else if (propName == "acceleration")
                 {
-                    // TODO: Fix acceleration via the new accessor (any acceleration is max?)
-                    // WriteFloat(modernAccessor, 13, weightedValue);
-                    // WriteBool(modernAccessor, 17, weightedValue != 0.0f);
-                    // WriteDouble(modernAccessor, 18, time);
-                    #if MACOSX
-                        if (_modernPtr != IntPtr.Zero)
-                        {
-                            WriteFloatPtr(_modernPtr, 13, weightedValue);
-                            WriteBoolPtr(_modernPtr, 17, weightedValue != 0.0f);
-                            WriteDoublePtr(_modernPtr, 18, time);
-                        }
-                    #else
+                    if (GameSettings.Current.EnableModernOutputForPedals) 
+                    {
                         WriteFloat(modernAccessor, 13, weightedValue);
                         WriteBool(modernAccessor, 17, weightedValue != 0.0f);
                         WriteDouble(modernAccessor, 18, time);
-                    #endif
+                    }
+                    else 
+                    {
+                        if (weightedValue > 0)
+                        {
+                            WriteFloat(legacyAccessor, legacyShmOffsets["aforward"], weightedValue);
+                            WriteFloat(legacyAccessor, legacyShmOffsets["abackward"], 0);
+                        }
+                        else
+                        {
+                            WriteFloat(legacyAccessor, legacyShmOffsets["abackward"], -weightedValue);
+                            WriteFloat(legacyAccessor, legacyShmOffsets["aforward"], 0);
+                        }
+                    }
                 }
-                Logging.Logger.Debug($"steering={weightedValue} ptr={_modernPtr}");
-                // or for accel
-                Logging.Logger.Debug($"accel={weightedValue} ptr={_modernPtr}");
+                else
+                {
+                    WriteFloat(legacyAccessor!, legacyShmOffsets[propName], weightedValue);
+                }
             }
 
-            #if MACOSX
-                legacyAccessor.Flush();
-            #else
-                modernAccessor.Flush();
-                legacyAccessor.Flush();
-            #endif
+            modernAccessor.Flush();
+            legacyAccessor.Flush();
 
             curFrameFloats.Clear();
             tickTimer.Restart();

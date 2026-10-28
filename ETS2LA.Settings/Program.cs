@@ -61,7 +61,7 @@ namespace ETS2LA.Settings
             // Write temp file, then replace the target to avoid lock issues.
             try
             {
-                _savingInProgress.Add(fileName);
+                lock (_sync) _savingInProgress.Add(fileName);
                 File.WriteAllText(temp, json, Encoding.UTF8);
                 int retries = 3;
                 while (retries-- > 0)
@@ -81,10 +81,10 @@ namespace ETS2LA.Settings
                         Thread.Sleep(50);
                     }
                 }
-                _savingInProgress.Remove(fileName);
+                lock (_sync) _savingInProgress.Remove(fileName);
             } catch (Exception ex)
             {
-                _savingInProgress.Remove(fileName);
+                lock (_sync) _savingInProgress.Remove(fileName);
                 Console.WriteLine($"Failed to save settings file {fileName}: {ex}");
                 File.Delete(temp);
                 return false;
@@ -101,8 +101,9 @@ namespace ETS2LA.Settings
             string path = Path.Combine(_baseDir, fileName);
             if (!File.Exists(path))
             {
-                Save(fileName, Activator.CreateInstance<T>());
-                return Activator.CreateInstance<T>();
+                T created = Activator.CreateInstance<T>();
+                Save(fileName, created);
+                return created;
             }
 
             string json = File.ReadAllText(path, Encoding.UTF8);
@@ -163,14 +164,18 @@ namespace ETS2LA.Settings
         void HandleFsChange(string fullPath, string? name)
         {
             if (name == null) return;
-            if (_savingInProgress.Contains(name)) return;
+
+            List<ListenerEntry>? entries;
+            lock (_sync)
+            {
+                if (_savingInProgress.Contains(name)) return;
+                entries = _listeners.TryGetValue(name, out var list) ? new List<ListenerEntry>(list) : null;
+            }
+            if (entries == null) return;
 
             try
             {
                 var lastWrite = File.GetLastWriteTimeUtc(fullPath);
-                List<ListenerEntry>? entries = _listeners.TryGetValue(name, out var list) ? new List<ListenerEntry>(list) : null;
-
-                if (entries == null) return;
 
                 // read file like this instead of File.ReadAllText to avoid file lock issues
                 using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);

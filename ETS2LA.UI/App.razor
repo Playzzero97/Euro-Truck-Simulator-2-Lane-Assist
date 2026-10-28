@@ -1,0 +1,53 @@
+@using ETS2LA.UI.Pages
+@using ETS2LA.Backend
+@using ETS2LA.Backend.Events
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.JSInterop
+
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+
+<Router @key="key" AppAssembly="@typeof(App).Assembly" AdditionalAssemblies="@PluginBackend.Current.PluginHandler?.PluginAssemblies">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Shared.Layouts.MainLayout)" />
+    </Found>
+    <NotFound>
+        <!-- TODO: We get stuck in the error page if it ever renders? -->
+        <LayoutView Layout="@typeof(Shared.Layouts.MainLayout)">
+            <Error StatusCode="404" Message="Not Found" />
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code {
+    private int key = 0;
+    string currentLang = System.Globalization.CultureInfo.CurrentCulture.Name;
+
+    protected override void OnInitialized()
+    {
+        PluginBackend.Current.OnBackendLoaded += HandlePluginsReloaded;
+        Events.Current.Subscribe<string>("ETS2LA.UI.Navigate", (data) => {
+            InvokeAsync(() => {
+                NavigationManager.NavigateTo(data);
+            });
+        });
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await JSRuntime.InvokeVoidAsync("eval", $"document.documentElement.lang = '{currentLang}'");
+    }
+
+    private void HandlePluginsReloaded()
+    {
+        // This causes a rescan of @page from PluginAssemblies,
+        // at least that's the hope...
+        key++;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        PluginBackend.Current.OnBackendLoaded -= HandlePluginsReloaded;
+    }
+}

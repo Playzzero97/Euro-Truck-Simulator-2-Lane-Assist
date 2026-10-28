@@ -1,6 +1,7 @@
 using ETS2LA.Shared;
 using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
+using static ETS2LA.Translations.T;
 
 using System.Numerics;
 using System.Diagnostics;
@@ -32,7 +33,6 @@ public class ParkedVehiclesProvider
 
     string mmapName = "Local\\ETS2LAParkedVehicles";
     string mmapNameLinux = "/dev/shm/ETS2LAParkedVehicles";
-    string mmapNameMacOS = "/tmp/ETS2LAParkedVehicles";
     int mmapSize = 1720;
 
     private MemoryMappedFile? _mmf;
@@ -75,7 +75,7 @@ public class ParkedVehiclesProvider
             try { Update(); }
             catch (Exception ex)
             {
-                Logger.Error(ex.ToString(), "Error in parked vehicles update loop.");
+                Logger.Error(ex.ToString(), _("Error in parked vehicles update loop."));
             }
         }
     }
@@ -89,8 +89,6 @@ public class ParkedVehiclesProvider
         {
             #if WINDOWS
                 _mmf = MemoryMappedFile.OpenExisting(mmapName);
-            #elif MACOSX
-                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif
@@ -107,7 +105,7 @@ public class ParkedVehiclesProvider
         catch (Exception ex)
         {
             CloseMemory();
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Logger.Error(_("Error initializing memory mapped file: {0}", ex.Message));
             Thread.Sleep(10000);
             return false;
         }

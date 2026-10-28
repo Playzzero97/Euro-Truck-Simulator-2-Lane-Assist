@@ -15,24 +15,28 @@ public class NotificationHandler
     public event EventHandler<Notification> OnNotificationUpdated;
     public event EventHandler<string> OnNotificationRemoved;
 
-    public NotificationHandler() {}
+    public NotificationHandler()
+    {
+        new Thread(NotificationTimeoutThread) { IsBackground = true }.Start();
+    }
 
     public void UpdateNotification(Notification notification)
     {
         var toUpdate = ActiveNotifications.FirstOrDefault(x => x.Id == notification.Id);
-        if (toUpdate != null)
-        {
-            toUpdate.Title = notification.Title;
-            toUpdate.Content = notification.Content;
-            toUpdate.Level = notification.Level;
-            toUpdate.Progress = notification.Progress;
-            toUpdate.IsProgressIndeterminate = notification.IsProgressIndeterminate;
-            toUpdate.CloseAfter = notification.CloseAfter;
-            toUpdate.ShowCloseButtonAfter = notification.ShowCloseButtonAfter;
-            toUpdate.CreatedAt = DateTime.UtcNow;
-        }
+        if (toUpdate == null)
+            return;
 
-        OnNotificationUpdated?.Invoke(this, notification);
+        toUpdate.Title = notification.Title;
+        toUpdate.Content = notification.Content;
+        toUpdate.Level = notification.Level;
+        toUpdate.Progress = notification.Progress;
+        toUpdate.IsProgressIndeterminate = notification.IsProgressIndeterminate;
+        toUpdate.CloseAfter = notification.CloseAfter;
+        toUpdate.ShowCloseButtonAfter = notification.ShowCloseButtonAfter;
+        toUpdate.CreatedAt = DateTime.UtcNow;
+        toUpdate.Actions = notification.Actions;
+
+        OnNotificationUpdated?.Invoke(this, toUpdate);
     }
 
     public void SendNotification(Notification notification)
@@ -49,11 +53,42 @@ public class NotificationHandler
 
     public void CloseNotification(string id)
     {
-        var toRemove = ActiveNotifications.FirstOrDefault(x => x.Id == id);
-        if (toRemove != null)
+        for (int i = 0; i < ActiveNotifications.Count; i++)
         {
-            ActiveNotifications.Remove(toRemove);
-            OnNotificationRemoved?.Invoke(this, id);
+            Notification candidate = ActiveNotifications[i];
+            if (candidate.Id != id)
+                continue;
+
+            try
+            {
+                ActiveNotifications.Remove(candidate);
+                OnNotificationRemoved?.Invoke(this, id);
+               return;
+            } catch { return; }
+        }
+    }
+
+    public void NotificationTimeoutThread()
+    {
+        while (true)
+        {
+            Thread.Sleep(1000);
+
+            var now = DateTime.UtcNow;
+            var toRemove = new List<string>();
+
+            foreach (var notification in ActiveNotifications)
+            {
+                if (notification.CloseAfter > 0 && (now - notification.CreatedAt).TotalSeconds >= notification.CloseAfter)
+                {
+                    toRemove.Add(notification.Id);
+                }
+            }
+
+            foreach (var id in toRemove)
+            {
+                CloseNotification(id);
+            }
         }
     }
 

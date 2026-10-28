@@ -1,0 +1,322 @@
+@page "/settings/display"
+@layout Shared.Layouts.SettingsLayout
+
+@inject IJSRuntime JS
+
+@using ETS2LA.UI.Shared.Components
+@using ETS2LA.State;
+@using ETS2LA.Overlay;
+@using ETS2LA.Logging;
+@using static ETS2LA.Translations.Languages;
+
+@code {
+    Dictionary<Units, string> displayUnitTranslations = new Dictionary<Units, string>
+    {
+        { Units.Metric, _("Metric") },
+        { Units.Imperial, _("Imperial") },
+        { Units.Scientific, _("Scientific") },
+    };
+    List<String> displayLanguageOptions = SupportedLanguages.Select(l => l.NativeName + $" - {l.EnglishName}").ToList();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Task.Factory.StartNew(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            while (await timer.WaitForNextTickAsync())
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }, TaskCreationOptions.LongRunning);
+    }
+
+    private int CurrentARFramerate
+    {
+        get => (int)Math.Round((OverlayHandler.Current.AverageFrameTime > 0) ? (int)(1 / (OverlayHandler.Current.AverageFrameTime / 1000f)) : 0f, 0);
+    }
+
+    private int CurrentUnits
+    {
+        get => (int)ApplicationState.Current.DisplayUnits;
+    }
+
+    private int CurrentLanguage
+    {
+        get => SupportedLanguages.FindIndex(l => l.Code == StateSettingsHandler.Current.GetSettings().DisplayLanguage?.Code);
+    }
+
+    private bool DisableOverlay
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().DisableOverlay;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.DisableOverlay = value;
+            OverlaySettingsHandler.Current.Save();
+            UserInterfaceUtils.AskForRestart(
+                "Restart Required",
+                "Changing this option requires a restart of ETS2LA to take effect. Restart now?"
+            );
+        }
+    }
+
+    private bool OverlayInteractionIsToggle
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().OverlayInteractionIsToggle;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.OverlayInteractionIsToggle = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private bool SupportMultipleViewports
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().SupportMultipleViewports;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.SupportMultipleViewports = value;
+            OverlaySettingsHandler.Current.Save();
+
+            UserInterfaceUtils.AskForRestart(
+                "Restart Required",
+                "Changing this option requires a restart of ETS2LA to take effect. Restart now?"
+            );
+        }
+    }
+
+    private bool LimitOverlayFramerate
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().LimitFramerate;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.LimitFramerate = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private int MaxOverlayFramerate
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().MaxFramerate;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.MaxFramerate = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private bool RenderARElements 
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().RenderAR;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.RenderAR = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private bool SimplifiedGraphics
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().SimplifiedGraphics;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.SimplifiedGraphics = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private bool StopRenderingWhenGamePaused
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().DontRenderWhenPaused;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.DontRenderWhenPaused = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private float MaxRenderDistance
+    {
+        get => OverlaySettingsHandler.Current.GetSettings().MaxARDistance;
+        set 
+        {
+            var settings = OverlaySettingsHandler.Current.GetSettings();
+            settings.MaxARDistance = value;
+            OverlaySettingsHandler.Current.Save();
+        }
+    }
+
+    private bool StayOnTop
+    {
+        get => WindowSettings.Current.StayOnTop;
+        set
+        {
+            if (value != StayOnTop)
+            {
+                WindowSettings.Current.StayOnTop = value;
+                WindowSettings.Current.Save();
+                UserInterfaceUtils.AskForRestart(
+                    _("Restart Required"),
+                    _("Changing this option requires a restart of ETS2LA to take effect. Restart now?")
+                );
+            }
+        }
+    }
+
+    private void OnDisplayUnitChanged(int index)
+    {
+        var settings = StateSettingsHandler.Current.GetSettings();
+        settings.DisplayUnits = (Units)index;
+        StateSettingsHandler.Current.Save();
+    }
+
+    @using System.Globalization
+
+    private void OnDisplayLanguageChanged(int index)
+    {
+        var selectedLanguageName = displayLanguageOptions[index].Split("-")[1].Trim();
+        Logger.Info($"Selecting language {selectedLanguageName} ({index})");
+        var selectedLanguage = SupportedLanguages.FirstOrDefault(l => l.EnglishName == selectedLanguageName);
+        if (selectedLanguage == null)
+        {
+            Logger.Error(_("{0} not found in supported languages.", selectedLanguageName));
+            return;
+        }
+
+        var settings = StateSettingsHandler.Current.GetSettings();
+        settings.DisplayLanguage = selectedLanguage;
+        StateSettingsHandler.Current.Save();
+
+        UserInterfaceUtils.AskForRestart(
+            _("Restart Required"),
+            _("Changing the display language requires a restart of ETS2LA to take effect. Restart now?")
+        );
+    }
+
+    private void HandleZoomChanged(float newZoom)
+    {
+        newZoom = (int)Math.Round(newZoom);
+        WindowSettings.Current.Zoom = (int)newZoom;
+    }
+
+    private bool FontSizeHasChanged = false;
+    private void HandleFontSizeChanged(float newFontSize)
+    {
+        newFontSize = (int)Math.Round(newFontSize);
+        var settings = OverlaySettingsHandler.Current.GetSettings();
+        settings.BaseFontSize = (int)newFontSize;
+        OverlaySettingsHandler.Current.Save();
+
+        FontSizeHasChanged = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleZoomSubmitted()
+    {
+        await JS.InvokeVoidAsync("sendIPCMessage", $"window:zoom:{WindowSettings.Current.Zoom}");
+        WindowSettings.Current.Save();
+    }
+}
+
+<div class="flex flex-col w-full p-5 px-8 gap-2">
+    <SectionTitle Title=@(_("Units and Language")) />
+    <Listbox Title=@(_("Display Units")) 
+             Description=@(_("The units ETS2LA will use when displaying information to a user. Scientific has only slight differences to metric."))
+             Options="@displayUnitTranslations.Values.ToList()"
+             SelectedIndex="@CurrentUnits"
+             SelectedIndexChanged="OnDisplayUnitChanged"/>
+    <Dropdown Title=@(_("Display Language"))
+            Description=@(_("The language ETS2LA will be displayed at. Translations are provided by the community, we cannot guarantee their accuracy.") + "<br/><br/>" + _("Translated by:") + "<br/>" + string.Join("<br/>", LanguageCredits(SupportedLanguages[CurrentLanguage].Code)))
+            Options="@displayLanguageOptions"
+            SelectedIndex="@CurrentLanguage"
+            SelectedIndexChanged="OnDisplayLanguageChanged"/>
+    
+    <SectionTitle Class="mt-8" Title=@(_("Window")) />
+    <Slider Title=@(_("Window Zoom"))
+            Suffix="%"
+            Description=@(_("The zoom level of the ETS2LA window. This can be used to scale the window to your monitor's DPI settings."))
+            Min="50"
+            Max="200"
+            Value="@WindowSettings.Current.Zoom"
+            ValueChanged="@((float value) => HandleZoomChanged(value))" 
+            ValueSubmitted="@(() => HandleZoomSubmitted())" />
+    <Switch Title=@(_("Stay on Top"))
+            Description=@(_("Keep the ETS2LA window on top of other windows. If you want to use the visualization on a single monitor setup, this is recommended."))
+            Value="@StayOnTop"
+            ValueChanged="@((bool value) => StayOnTop = value)" />
+
+    <SectionTitle Class="mt-8" Title=@(_("Overlay")) />
+    <Switch Title=@(_("Disable Overlay"))
+            Description=@(_("Disables the overlay entirely. This will fix the black screen issue at the cost of breaking all features that rely on the overlay, including AR and the HUD."))
+            Value="@DisableOverlay"
+            ValueChanged="@((bool value) => DisableOverlay = value)" />
+    <Slider Title=@(_("Overlay Font Size"))
+            Suffix="px"
+            Description=@(_("The font size of the overlay. This can be used to scale the overlay to your monitor's DPI settings."))
+            Min="10"
+            Max="30"
+            Value="@OverlaySettingsHandler.Current.GetSettings().BaseFontSize"
+            ValueChanged="@((float value) => HandleFontSizeChanged(value))" />
+    @if (FontSizeHasChanged)
+    {
+        <p class="text-sm text-description! font-normal!">@(_("You must restart ETS2LA for the font size change to take effect."))</p>
+    }
+    
+    <Switch Title=@(_("Keybind is Toggle"))
+            Description=@(_("When enabled, the overlay will toggle between interaction and non-interaction mode when you press it's keybind. When disabled, the overlay will only be interactive while you hold down the keybind."))
+            Value="@OverlaySettingsHandler.Current.GetSettings().OverlayInteractionIsToggle"
+            Class="@(!DisableOverlay ? "" : "opacity-30 pointer-events-none")"
+            ValueChanged="@((bool value) => OverlayInteractionIsToggle = value)" />
+    <Switch Title=@(_("Support Multiple Viewports"))
+            Description=@(_("This allows ETS2LA to render in multiple viewports, meaning you can move overlay windows to any monitor."))
+            Value="@SupportMultipleViewports"
+            Class="@(!DisableOverlay ? "" : "opacity-30 pointer-events-none")"
+            ValueChanged="@((bool value) => SupportMultipleViewports = value)" />
+    <Switch Title=@(_("Limit Overlay Framerate"))
+            Description=@(_("In most situations, over half of ETS2LA's CPU use is consumed by the overlay. Limiting the framerate will reduce CPU usage."))
+            Value="@LimitOverlayFramerate"
+            Class="@(!DisableOverlay ? "" : "opacity-30 pointer-events-none")"
+            ValueChanged="@((bool value) => LimitOverlayFramerate = value)" />
+    <Slider Title=@(_("Max Overlay Framerate"))
+            Description=@(_("Currently running at {0} FPS.", CurrentARFramerate))
+            Suffix="FPS"
+            Class="@((LimitOverlayFramerate && !DisableOverlay) ? "" : "opacity-30 pointer-events-none")"
+            Min="10"
+            Max="120"
+            Value="@MaxOverlayFramerate"
+            HighlightValue="@CurrentARFramerate"
+            ValueChanged="@((float value) => MaxOverlayFramerate = (int)value)" />
+
+    <SectionTitle Class="mt-8" Title=@(_("3D Renderer")) />
+    <Switch Title=@(_("Render AR Elements"))
+            Description=@(_("We can render elements in the game world using the overlay. This will use additional CPU and GPU resources."))
+            Value="@RenderARElements"
+            Class="@(!DisableOverlay ? "" : "opacity-30 pointer-events-none")"
+            ValueChanged="@((bool value) => RenderARElements = value)" />
+    <Switch Title=@(_("Simplified Graphics"))
+            Description=@(_("Using simplified graphics can improve performance on lower-end hardware, or fix situations in which advanced features like shaders are not supported."))
+            Class="@((!DisableOverlay && RenderARElements) ? "" : "opacity-30 pointer-events-none")"
+            Value="@SimplifiedGraphics"
+            ValueChanged="@((bool value) => SimplifiedGraphics = value)" />
+    <Switch Title=@(_("Stop Rendering When Game is Paused"))
+            Description=@(_("When the game reports itself being paused, ETS2LA won't render AR elements."))
+            Class="@((!DisableOverlay && RenderARElements) ? "" : "opacity-30 pointer-events-none")"
+            Value="@StopRenderingWhenGamePaused"
+            ValueChanged="@((bool value) => StopRenderingWhenGamePaused = value)" />
+    <Slider Title=@(_("Max Render Distance"))
+            Suffix="m"
+            Description=@(_("The maximum distance at which 3D elements will be rendered. Lowering this can be used to improve performance on lower-end hardware."))
+            Class="@((!DisableOverlay && RenderARElements) ? "" : "opacity-30 pointer-events-none")"
+            Min="50"
+            Max="512"
+            Value="@MaxRenderDistance"
+            ValueChanged="@((float value) => MaxRenderDistance = value)" /> 
+</div>

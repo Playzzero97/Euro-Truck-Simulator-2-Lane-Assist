@@ -1,0 +1,113 @@
+@using ETS2LA.Notifications
+@using ETS2LA.UI.Shared.Components
+@using ETS2LA.Logging
+
+@inject IJSRuntime JS
+
+@code {
+    private List<ETS2LA.Notifications.Notification> notifications = new();
+    private Dictionary<string, bool> notificationExitingStates = new();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        NotificationHandler.Current.OnNotificationAdded += HandleNotificationAdded;
+        NotificationHandler.Current.OnNotificationRemoved += HandleNotificationRemoved;
+        NotificationHandler.Current.OnNotificationUpdated += HandleNotificationUpdated;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("initNotificationHover");
+        }
+    }
+
+    private void HandleNotificationAdded(object? sender, ETS2LA.Notifications.Notification notification)
+    {
+        InvokeAsync(() =>
+        {
+            if (notifications.Any(n => n.Id == notification.Id))
+            {
+                HandleNotificationUpdated(sender, notification);
+                return;
+            }
+
+            notificationExitingStates[notification.Id] = false;
+            notifications.Insert(0, notification);
+            StateHasChanged();
+        });
+    }
+
+    private void HandleNotificationRemoved(object? sender, string notificationId)
+    {
+        InvokeAsync(() =>
+        {
+            var notification = notifications.FirstOrDefault(n => n.Id == notificationId);
+            if (notification != null)
+            {
+                notificationExitingStates[notificationId] = true;
+                StateHasChanged();
+                
+                Task.Delay(300).ContinueWith(_ =>
+                {
+                    InvokeAsync(() =>
+                    {
+                        notifications.Remove(notification);
+                        notificationExitingStates.Remove(notificationId);
+                        StateHasChanged();
+                    });
+                });
+            }
+        });
+    }
+
+    private void HandleNotificationUpdated(object? sender, ETS2LA.Notifications.Notification notification)
+    {
+        InvokeAsync(() =>
+        {
+            var index = notifications.FindIndex(n => n.Id == notification.Id);
+            if (index != -1)
+            {
+                notifications[index] = notification;
+                StateHasChanged();
+            }
+            else 
+            {
+                notificationExitingStates[notification.Id] = false;
+                notifications.Insert(0, notification);
+                StateHasChanged();
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        NotificationHandler.Current.OnNotificationAdded -= HandleNotificationAdded;
+        NotificationHandler.Current.OnNotificationRemoved -= HandleNotificationRemoved;
+        NotificationHandler.Current.OnNotificationUpdated -= HandleNotificationUpdated;
+    }
+}
+
+<div class="fixed bottom-4 right-4 z-[9999] flex flex-col w-[300px] max-h-[calc(100vh-20px)] overflow-y-auto overflow-x-hidden pointer-events-none">
+    @foreach (var notification in notifications)
+    {
+        var isExiting = notificationExitingStates.TryGetValue(notification.Id, out var exiting) && exiting;
+        
+        <div @key="notification.Id" class="notification-anim-wrapper pointer-events-none justify-items-end justify-end @(isExiting ? "exiting" : "")">
+            <div class="pointer-events-none">
+                <div class="notification-anim-content pointer-events-none">
+                    <Notification Id="@notification.Id" 
+                                  Title="@notification.Title" 
+                                  Content="@notification.Content" 
+                                  Level="@notification.Level" 
+                                  Progress="@notification.Progress" 
+                                  Indeterminate="@notification.IsProgressIndeterminate" 
+                                  Actions="@notification.Actions" 
+                                  IsExiting="@isExiting" />
+                </div>
+            </div>
+        </div>
+    }
+</div>

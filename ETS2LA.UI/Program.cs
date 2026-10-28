@@ -1,50 +1,77 @@
-using System;
-using Avalonia;
-using Avalonia.ReactiveUI;
-using Optris.Icons.Avalonia;
-using Optris.Icons.Avalonia.FontAwesome;
-using Optris.Icons.Avalonia.MaterialDesign;
+﻿using System;
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.DependencyInjection;
+using Photino.Blazor;
+using Photino.NET;
 
 namespace ETS2LA.UI;
 
-/// <summary>
-///  The main entrypoint for ETS2LA's user interface.
-///  This class will call App.axaml.cs to start the UI.
-/// </summary>
-public class Program
+public class UserInterface
 {
-    public static AppBuilder BuildAvaloniaApp()
+    private static readonly Lazy<UserInterface> _instance = new(() => new UserInterface());
+    public static UserInterface Current => _instance.Value;
+
+    public PhotinoWindow Window { get; private set; }
+    
+    #if LINUX
+        [DllImport("libc", EntryPoint = "setenv", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SetNativeEnv(string name, string value, int overwrite);
+    #endif
+
+    [STAThread]
+    public static void Start(string[] args)
     {
-        IconProvider.Current
-            .Register<FontAwesomeIconProvider>()
-            .Register<MaterialDesignIconProvider>();
+        var iconPath = "wwwroot/favicon.ico";
+        #if LINUX
+            SetNativeEnv("GDK_BACKEND", "x11", 1);
+            SetNativeEnv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 1);
+            SetNativeEnv("WEBKIT_FORCE_COMPOSITING_MODE", "1", 1);
 
-        return AppBuilder.Configure<App>()
-            .UsePlatformDetect()
-            .UseReactiveUI();
-    }
-
-    public static void Main(string[] args, Action? afterSetup = null)
-    {
-        var builder = BuildAvaloniaApp();
-
-        #if MACOSX
-            builder = builder.AfterSetup(_ =>
-            {
-                afterSetup?.Invoke();
-
-                var timer = new Avalonia.Threading.DispatcherTimer
-                {
-                    Interval = TimeSpan.FromMilliseconds(1000.0 / 60.0)
-                };
-                timer.Tick += (_, _) => ETS2LA.Overlay.OverlayHandler.Current.RenderFrame();
-                timer.Start();
-            });
-        #else
-            if (afterSetup != null)
-                builder = builder.AfterSetup(_ => afterSetup());
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            iconPath = Path.Combine(baseDir, "wwwroot", "favicon.ico");
         #endif
 
-        builder.StartWithClassicDesktopLifetime(args);
+        var appBuilder = PhotinoBlazorAppBuilder.CreateDefault(args);
+
+        // mounted into <div id="app"> inside wwwroot/index.html.
+        appBuilder.RootComponents.Add<App>("#app");
+        var app = appBuilder.Build();
+
+        app.MainWindow
+            .SetTitle("ETS2LA")
+            .SetUserAgent("ETS2LA/3.X.X")
+            .SetIconFile(iconPath)
+            .SetUseOsDefaultSize(false)
+            .SetUseOsDefaultLocation(false)
+            .SetMinSize(800, 600)
+            .SetSize(WindowSettings.Current.Width, WindowSettings.Current.Height)
+            .SetLogVerbosity(0)
+            // Want to see a weird bug? Uncomment this line on Windows and make
+            // the window larger. Bizarre 'innit!
+            //.SetTransparent(true)
+            .SetZoom(WindowSettings.Current.Zoom)
+            .RegisterWebMessageReceivedHandler((sender, e) => IPC.HandleMessage(e, sender, app))
+            #if DEBUG
+            .SetDevToolsEnabled(true)
+            #endif
+            .SetChromeless(true);
+
+        app.MainWindow.Center();
+        app.MainWindow.SetTopMost(WindowSettings.Current.StayOnTop);
+
+        Current.Window = app.MainWindow;
+        Current.Window.WindowSizeChanged += (sender, e) => {
+            WindowSettings.Current.Width = e.Width;
+            WindowSettings.Current.Height = e.Height;
+        };
+        Current.Window.WindowLocationChanged += (sender, e) => {
+            // TODO: Figure out why this saves incorrect values, then .SetLocation() at startup again.
+            WindowSettings.Current.X = e.X;
+            WindowSettings.Current.Y = e.Y;
+        };
+        
+        // blocking until window is closed.
+        app.Run();
+        WindowSettings.Current.Save();
     }
 }

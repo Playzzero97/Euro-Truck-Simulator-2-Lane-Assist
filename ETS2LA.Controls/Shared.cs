@@ -14,6 +14,11 @@ public interface IControlsBackend
     public static IControlsBackend Current => _instance ?? throw new Exception("No controls backend registered! Make sure to register one in your plugin's OnLoad method.");
 
     /// <summary>
+    ///  This event is fired when a control's value changes. i.e. button pressed
+    ///  or axis moved. This is a global event for all controls.
+    /// </summary>
+    public event EventHandler<ControlChangeEventArgs> ControlValueChanged;
+    /// <summary>
     ///  This event is fired when a control is added to the ControlsBackend.
     /// </summary>
     public event EventHandler<ControlAddedEventArgs> ControlAdded;
@@ -181,10 +186,12 @@ public class ControlAddedEventArgs : EventArgs
 /// </summary>
 public class ControlChangeEventArgs : EventArgs
 {
+    public ControlDefinition controlDefinition;
     public object NewValue;
-    public ControlChangeEventArgs(object newValue)
+    public ControlChangeEventArgs(object newValue, ControlDefinition controlDefinition)
     {
         NewValue = newValue;
+        this.controlDefinition = controlDefinition;
     }
 }
 
@@ -275,18 +282,19 @@ public class ControlInstance : ISerializable
 
     public void UpdateState(object newValue)
     {
-        if (_lastValue != null && _lastValue.Equals(newValue))
-            return;
-
         if (Definition.Type == ControlType.Boolean)
         {
             bool boolValue;
             if (newValue.GetType() == typeof(float))
-                boolValue = (float)newValue != 0.0f;
+                boolValue = (float)newValue >= 0.6f;
             else
                 boolValue = (bool)newValue;
 
-            OnChange?.Invoke(this, new ControlChangeEventArgs(boolValue));
+            if (_lastValue != null && _lastValue.Equals(boolValue))
+                return;
+
+            OnChange?.Invoke(this, new ControlChangeEventArgs(boolValue, this.Definition));
+            _lastValue = boolValue;
         }
         else
         {
@@ -296,9 +304,11 @@ public class ControlInstance : ISerializable
             else
                 floatValue = (float)newValue;
 
-            OnChange?.Invoke(this, new ControlChangeEventArgs(floatValue));
-        }
+            if (_lastValue != null && _lastValue.Equals(floatValue))
+                return;
 
-        _lastValue = newValue;
+            OnChange?.Invoke(this, new ControlChangeEventArgs(floatValue, this.Definition));
+            _lastValue = floatValue;
+        }
     }
 }

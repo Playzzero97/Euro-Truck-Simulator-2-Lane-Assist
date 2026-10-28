@@ -10,18 +10,35 @@ using Hexa.NET.OpenGL;
 using HexaGen.Runtime;
 using GLFWwindowPtr = Hexa.NET.GLFW.GLFWwindowPtr;
 
+using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Numerics;
-using Avalonia.Data;
+using System.Diagnostics;
+using ETS2LA.Shared;
 
 using ETS2LA.Logging;
 using ETS2LA.Controls;
 using ETS2LA.Overlay.Window;
 using ETS2LA.Overlay.AR;
-using System.Diagnostics;
+using ETS2LA.ML;
+using ETS2LA.ML.Vision;
 using ETS2LA.Game.Telemetry;
+using ETS2LA.State;
+using ETS2LA.Translations;
+using static ETS2LA.Translations.T;
 
 namespace ETS2LA.Overlay;
+
+#if WINDOWS
+    public static class NativeMethods
+    {
+        [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod", SetLastError = true)]
+        public static extern uint TimeBeginPeriod(uint uMilliseconds);
+
+        [DllImport("winmm.dll", EntryPoint = "timeEndPeriod", SetLastError = true)]
+        public static extern uint TimeEndPeriod(uint uMilliseconds);
+    }
+#endif
 
 public enum FontStyle
 {
@@ -39,8 +56,8 @@ public class OverlayHandler
     public ControlDefinition Interact = new ControlDefinition
     {   
         Id = "ETS2LA.Overlay.Interact",
-        Name = "Overlay Interaction",
-        Description = "When this key is held, the overlay will receive mouse input and allow you to interact with it. NOTE: Interaction with items below the overlay is not possible during this time.",
+        Name = _("Overlay Interaction"),
+        Description = _("When this key is held, the overlay will receive mouse input and allow you to interact with it. NOTE: Interaction with items below the overlay is not possible during this time."),
         DefaultKeybind = "RightAlt",
         Type = ControlType.Boolean
     };
@@ -49,18 +66,22 @@ public class OverlayHandler
     private OverlaySettings overlaySettings;
 
     private bool isInteracting = false;
+    private bool hasInteracted = false;
     private float bgOpacityTarget = 0.0f;
     private bool shutdown = false;
     private List<float> frameTimes = new List<float>();
+    private List<double> remainingMs = new List<double>();
     
     private List<InternalWindow> windows = new();
     public Dictionary<FontStyle, ImFontPtr> Fonts = new Dictionary<FontStyle, ImFontPtr>();
 
     public bool IsOverlayFocused => isInteracting;
     public float AverageFrameTime => frameTimes.Count > 0 ? frameTimes.Average() : 0f;
+    public float AverageRemainingTime => remainingMs.Count > 0 ? (float)remainingMs.Average() : 0f;
 
     public float OverlayWidth => GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).Width;
     public float OverlayHeight => GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).Height;
+    public float OverlayMonitorRefreshRate => GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).RefreshRate;
 
     private string glslVersion = "#version 150";
     private GLFWwindowPtr glfwWindow;
@@ -69,20 +90,6 @@ public class OverlayHandler
     private ImGuiIOPtr io;
     private GL gl;
 
-    #if MACOSX
-    [System.Runtime.InteropServices.DllImport("libobjc.dylib")]
-    private static extern IntPtr sel_registerName(string name);
-
-    [System.Runtime.InteropServices.DllImport("libobjc.dylib", EntryPoint = "objc_msgSend")]
-    private static extern void objc_msgSend_void_int(IntPtr receiver, IntPtr selector, int value);
-
-    private bool _renderInitialized = false;
-    private Stopwatch _frameTimer = Stopwatch.StartNew();
-    private double _lastFrameStart = 0;
-    private bool _firstFrame = true;
-    private int _renderingFlag = 0;
-    #endif
-
     public OverlayHandler()
     {
         ControlsBackend.Current.RegisterControl(Interact);
@@ -90,14 +97,14 @@ public class OverlayHandler
         overlaySettings = OverlaySettingsHandler.Current.GetSettings();
         OverlaySettingsHandler.Current.OnSettingsUpdated += OnOverlaySettingsUpdated;
 
-        #if !MACOSX
-        Task.Run(() => RenderLoop());
-        #endif
+        Task.Factory.StartNew(RenderLoop, TaskCreationOptions.LongRunning);
         
         windows.Add(new ConsoleWindow());
-        windows.Add(new OverlayInfoWindow());
         windows.Add(new DemoWindow());
         windows.Add(new StateWindow());
+
+        if (MLSettings.Current.RenderVisionCameras)
+            windows.Add(new VisionCamerasWindow());
     }
 
     private void OnOverlaySettingsUpdated(OverlaySettings newSettings)
@@ -108,179 +115,59 @@ public class OverlayHandler
     private void HandleInput(object sender, ControlChangeEventArgs e)
     {
         bool b = (bool)e.NewValue;
-        if (b == isInteracting) { return; }
-        isInteracting = b;
-    }
-
-#if MACOSX
-    private unsafe void SetMacOSWindowLevel()
-    {
-        IntPtr nsWindow = (IntPtr)GLFW.GetCocoaWindow(glfwWindow);
-        IntPtr sel = sel_registerName("setLevel:");
-        const int NSScreenSaverWindowLevel = 1000;
-        objc_msgSend_void_int(nsWindow, sel, NSScreenSaverWindowLevel);
-    }
-#endif
-
-#if MACOSX
-    public bool InitWindowOnMainThread()
-    {
-        if (!InitGLFW())
-            return false;
-
-        GLFW.MakeContextCurrent(glfwWindow);
-        gl = new GL(new BindingsContext(glfwWindow));
-
-        SetMacOSWindowLevel();
-
-        if (!InitImGui())
-            return false;
-
-        _lastFrameStart = _frameTimer.Elapsed.TotalMilliseconds;
-        _renderInitialized = true;
-
-        return true;
-    }
-#endif
-
-#if MACOSX
-    public void RenderFrame()
-    {
-        if (!_renderInitialized || glfwWindow.IsNull)
-            return;
-
-        if (Interlocked.CompareExchange(ref _renderingFlag, 1, 0) != 0)
-            return;
-
-        try
+        if (overlaySettings.OverlayInteractionIsToggle)
         {
-            GLFW.MakeContextCurrent(glfwWindow);
-
-            if (!isInteracting)
+            if (b && !hasInteracted)
             {
-                ImGui.GetPlatformIO().Viewports[0].Flags |= ImGuiViewportFlags.NoInputs;
-                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 1);
-                bgOpacityTarget = 0.0f;
+                isInteracting = !isInteracting;
+                hasInteracted = true;
             }
-            else
+            else if (!b && hasInteracted)
             {
-                ImGui.GetPlatformIO().Viewports[0].Flags &= ~ImGuiViewportFlags.NoInputs;
-                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 0);
-                GLFW.FocusWindow(glfwWindow);
-                bgOpacityTarget = 0.5f;
+                hasInteracted = false;
             }
-
-            int fbWidth, fbHeight;
-            int winWidth, winHeight;
-
-            unsafe
-            {
-                GLFW.GetFramebufferSize(glfwWindow, &fbWidth, &fbHeight);
-                GLFW.GetWindowSize(glfwWindow, &winWidth, &winHeight);
-            }
-
-            gl.Viewport(0, 0, fbWidth, fbHeight);
-
-            io.DisplaySize = new Vector2(winWidth, winHeight);
-            io.DisplayFramebufferScale = new Vector2(
-                (float)fbWidth / winWidth,
-                (float)fbHeight / winHeight);
-
-            double now = _frameTimer.Elapsed.TotalMilliseconds;
-            io.DeltaTime = Math.Max((float)((now - _lastFrameStart) / 1000.0), 0.0001f);
-            _lastFrameStart = now;
-            
-            ImGuiImplOpenGL3.NewFrame();
-            ImGui.NewFrame();
-
-            if (isInteracting)
-            {
-                double mouseX, mouseY;
-                unsafe { GLFW.GetCursorPos(glfwWindow, &mouseX, &mouseY); }
-
-                io.AddMousePosEvent((float)mouseX, (float)mouseY);
-            }
-            else
-            {
-                io.AddMousePosEvent(-float.MaxValue, -float.MaxValue);
-            }
-
-            io.AddMouseButtonEvent(0, GLFW.GetMouseButton(glfwWindow, 0) == GLFW.GLFW_PRESS);
-            io.AddMouseButtonEvent(1, GLFW.GetMouseButton(glfwWindow, 1) == GLFW.GLFW_PRESS);
-            io.AddMouseButtonEvent(2, GLFW.GetMouseButton(glfwWindow, 2) == GLFW.GLFW_PRESS);
-
-            try
-            {
-                if (AR == null)
-                    AR = new ARRenderer(gl);
-
-                bool paused = GameTelemetry.Current.GetCurrentData().paused;
-
-                if (overlaySettings.RenderAR &&
-                    (!overlaySettings.DontRenderWhenPaused || !paused))
-                {
-                    AR.Render();
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error in AR rendering: {ex}");
-            }
-
-            try
-            {
-                OnUIRender();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error rendering overlay: {ex}");
-            }
-
-            ImGui.Render();
-
-            gl.ClearColor(0f, 0f, 0f, bgOpacityTarget);
-            gl.Clear(GLClearBufferMask.ColorBufferBit);
-
-            ImGuiImplOpenGL3.RenderDrawData(ImGui.GetDrawData());
-
-            if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
-            {
-                ImGui.UpdatePlatformWindows();
-                ImGui.RenderPlatformWindowsDefault();
-            }
-
-           GLFW.SwapBuffers(glfwWindow);
-
-            double frameEnd = _frameTimer.Elapsed.TotalMilliseconds;
-            frameTimes.Add((float)(frameEnd - _lastFrameStart));
-            if (frameTimes.Count > 60) frameTimes.RemoveAt(0);
-            _lastFrameStart = frameEnd;
         }
-        finally
+        else
         {
-            Interlocked.Exchange(ref _renderingFlag, 0);
+            if (b == isInteracting) { return; }
+            isInteracting = b;
         }
     }
-#endif
 
     private void RenderLoop()
     {
+        if (overlaySettings.DisableOverlay)
+        {
+            Logger.Error(_("Overlay is disabled in settings, skipping initialization."));
+            AR = new ARRenderer(null); // null renderer, won't actually do anything
+            return;
+        }
+
         if(!InitGLFW())
         {
-            Logger.Error("Failed to initialize overlay");
+            Logger.Error(_("Failed to initialize overlay, OpenGL initialization failed."));
             return;
         }
         GLFW.MakeContextCurrent(glfwWindow);
         gl = new GL(new BindingsContext(glfwWindow));
+
+        if (MLSettings.Current.RenderVisionCameras)
+            VisionHandler.Current.Initialize(gl);
         
         if (!InitImGui())
         {
-            Logger.Error("Failed to initialize overlay");
+            Logger.Error(_("Failed to initialize overlay, ImGui initialization failed."));
             return;
         }
 
+        #if WINDOWS
+            // 1ms sleep accuracy on windows
+            // Linux is fine from the get go
+            NativeMethods.TimeBeginPeriod(1);
+        #endif
+
         Stopwatch fs = Stopwatch.StartNew();
-        int targetFramerate = GLFW.GetVideoMode(GLFW.GetPrimaryMonitor()).RefreshRate;
+        int targetFramerate = (int)OverlayMonitorRefreshRate;
         double interval = 1000.0 / targetFramerate;
         double next = fs.Elapsed.TotalMilliseconds;
         double start = fs.Elapsed.TotalMilliseconds;
@@ -293,36 +180,31 @@ public class OverlayHandler
                 interval = 1000.0 / targetFramerate;
 
             start = fs.Elapsed.TotalMilliseconds;
+            if (next < start)
+                next = start;
+            
             next += interval;
 
-            Stopwatch InteractionStopwatch = Stopwatch.StartNew();
-            if (!isInteracting) 
-            { 
+            if (!isInteracting) { 
                 // This has to be called each frame to properly update the flags.
                 // For whatever reason they are set back to default. Shouldn't affect
                 // performance, it's just weird...
                 ImGui.GetPlatformIO().Viewports[0].Flags |= ImGuiViewportFlags.NoInputs;
-
-                # if LINUX || MACOSX
-                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 1);
-                # endif
-                
                 bgOpacityTarget = 0.0f;
-            }
-            else 
-            {
-                # if LINUX || MACOSX
-                GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 0);
+
+                # if LINUX
+                    GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 1);
                 # endif
-                bgOpacityTarget = 0.5f;
             }
-            InteractionStopwatch.Stop();
+            else  {
+                bgOpacityTarget = 0.5f;
+                # if LINUX
+                    GLFW.SetWindowAttrib(glfwWindow, GLFW.GLFW_MOUSE_PASSTHROUGH, 0);
+                # endif
+            }
 
-            Stopwatch PollEventsStopwatch = Stopwatch.StartNew();
             GLFW.PollEvents();
-            PollEventsStopwatch.Stop();
 
-            Stopwatch NewFrameStopwatch = Stopwatch.StartNew();
             // Skip rendering if we're minimized, though this should actually
             // never happen for the overlay.
             if (GLFW.GetWindowAttrib(glfwWindow, GLFW.GLFW_ICONIFIED) != 0)
@@ -336,71 +218,71 @@ public class OverlayHandler
             ImGuiImplOpenGL3.NewFrame();
             ImGuiImplGLFW.NewFrame();
             ImGui.NewFrame();
-            NewFrameStopwatch.Stop();
+
+            // This renders the virtual cameras into their respective framebuffers.
+            if (MLSettings.Current.RenderVisionCameras)
+                VisionHandler.Current.Render();
+
+            gl.Viewport(0, 0, (int)OverlayWidth, (int)OverlayHeight);
 
             // The actual rendering is happening here,
             // all other calls are just setup.
-            Stopwatch ARStopwatch = Stopwatch.StartNew();
             try { 
-                if (AR == null) AR = new ARRenderer(gl);
+                if (AR == null) 
+                {
+                    AR = new ARRenderer(gl);
+
+                    if (MLSettings.Current.RenderVisionCameras)
+                    {
+                        VisionCamerasARRenderer renderer = new VisionCamerasARRenderer();
+                        renderer.Register();
+                    }
+                }
                 bool paused = GameTelemetry.Current.GetCurrentData().paused;
                 if (overlaySettings.RenderAR && (!overlaySettings.DontRenderWhenPaused || !paused)) AR.Render(); 
             }
             catch (Exception ex) {
-                Logger.Error($"Error in AR rendering: {ex}");
+                Logger.Error(_("Error in AR rendering: {0}", ex.Message));
             }
-            ARStopwatch.Stop();
 
-            Stopwatch UIRenderStopwatch = Stopwatch.StartNew();
             try { OnUIRender(); }
             catch (Exception ex) {
-                Logger.Error($"Error rendering overlay: {ex}");
+                Logger.Error(_("Error rendering overlay: {0}", ex.Message));
             }
-            UIRenderStopwatch.Stop();
             // ---
 
-            Stopwatch RenderStopwatch = Stopwatch.StartNew();
             ImGui.Render();
 
             gl.ClearColor(0f, 0f, 0f, bgOpacityTarget);
             gl.Clear(GLClearBufferMask.ColorBufferBit);
+
+            try { AR.RenderShaders(); } 
+            catch (Exception ex) {
+                Logger.Error(_("Error in AR OpenGL pass: {0}", ex.Message));
+            }
             
             ImGuiImplOpenGL3.RenderDrawData(ImGui.GetDrawData());
-            RenderStopwatch.Stop();
 
-            Stopwatch UpdatePlatformWindowsStopwatch = Stopwatch.StartNew();
             if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
             {
                 ImGui.UpdatePlatformWindows();
                 ImGui.RenderPlatformWindowsDefault();
             }
-            UpdatePlatformWindowsStopwatch.Stop();
 
-            Stopwatch SwapBuffersStopwatch = Stopwatch.StartNew();
             GLFW.SwapInterval(0); // disable vsync
             GLFW.SwapBuffers(glfwWindow);
-            SwapBuffersStopwatch.Stop();
 
             double remaining = next - fs.Elapsed.TotalMilliseconds;
             if (remaining > 1.0)
                 Thread.Sleep((int)(remaining - 1));
-            
-            // Busy wait the end
             while (fs.Elapsed.TotalMilliseconds < next)
                 Thread.SpinWait(10);
             
             frameTimes.Add((float)(fs.Elapsed.TotalMilliseconds - start));
             if (frameTimes.Count > targetFramerate) { frameTimes.RemoveAt(0); }
-
-            // TODO: There are some lag spikes that can't be explained using the 
-            // stopwatches in use here, where are those coming from?
-            // if (fs.Elapsed.TotalMilliseconds - start > interval + 20)
-            // {
-            //     Logger.Warn($"Overlay is running behind! Missed frame time by {fs.Elapsed.TotalMilliseconds - start - interval} ms");
-            //     Logger.Warn($"AR rendering took {ARStopwatch.Elapsed.TotalMilliseconds} ms, UI rendering took {UIRenderStopwatch.Elapsed.TotalMilliseconds} ms");
-            //     Logger.Warn($"Interaction took {InteractionStopwatch.Elapsed.TotalMilliseconds} ms, PollEvents took {PollEventsStopwatch.Elapsed.TotalMilliseconds} ms, NewFrame took {NewFrameStopwatch.Elapsed.TotalMilliseconds} ms");
-            //     Logger.Warn($"Render took {RenderStopwatch.Elapsed.TotalMilliseconds} ms, UpdatePlatformWindows took {UpdatePlatformWindowsStopwatch.Elapsed.TotalMilliseconds} ms, SwapBuffers took {SwapBuffersStopwatch.Elapsed.TotalMilliseconds} ms");
-            // }
+            
+            remainingMs.Add(remaining);
+            if (remainingMs.Count > targetFramerate) { remainingMs.RemoveAt(0); }
         }
 
         ImGuiImplOpenGL3.Shutdown();
@@ -419,9 +301,9 @@ public class OverlayHandler
     {
         if (isInteracting)
         {
-            ImGui.Begin("Interaction Mode", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoBackground);
+            ImGui.Begin(_("Interaction Mode"), ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoBackground);
             ImGui.SetWindowPos(new Vector2(OverlayWidth / 2 - 60, 10), ImGuiCond.Always);
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "Interaction Mode");
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), _("Interaction Mode"));
 
             ImGui.Spacing();
             try
@@ -436,7 +318,7 @@ public class OverlayHandler
         
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip("Click to " + (isOpen ? "hide" : "show") + " this window");
+                        ImGui.SetTooltip(_("Click to {0} this window", isOpen ? _("hide") : _("show")));
                     }
                     if (ImGui.IsItemClicked())
                     {
@@ -445,14 +327,28 @@ public class OverlayHandler
                 }
             } catch (Exception ex)
             {
-                Logger.Error($"Error rendering interaction mode window controls: {ex}");
+                Logger.Error(_("Error rendering interaction mode window controls: {0}", ex.Message));
             }
             ImGui.End();
         }
 
         ImGui.SetNextWindowPos(new Vector2(OverlayWidth - 10, 10), ImGuiCond.Always, new Vector2(1f, 0f));
-        ImGui.Begin("Performance Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoBackground);
+        ImGui.Begin(_("Performance Overlay"), ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoBackground);
+
+        var fps = (AverageFrameTime > 0) ? (int)(1 / (AverageFrameTime / 1000f)) : 0;
+        int freePercentage;
+        if (overlaySettings.LimitFramerate)
+            freePercentage = (int)(AverageRemainingTime / (1000f / overlaySettings.MaxFramerate) * 100f);
+        else
+            freePercentage = (int)(AverageRemainingTime / (1000f / OverlayMonitorRefreshRate) * 100f);
+        
         ImGui.TextColored(new Vector4(1f,1f,1f,0.5f), $"{(int)(1/(AverageFrameTime / 1000f))}");
+        ImGui.TextColored(new Vector4(1f,1f,1f,0.5f), $"{freePercentage}%%");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(_("Overlay free CPU time percentage"));
+        }
+
         ImGui.End();
 
         foreach (InternalWindow window in windows)
@@ -491,8 +387,8 @@ public class OverlayHandler
                 // once each startup. Use ImGuiWindowFlags to disallow resizing.
                 if (window.Definition.X.HasValue || window.Definition.Y.HasValue)
                 {
-                    int x = (int)window.Definition.X.GetValueOrDefault(OverlayWidth / 2);
-                    int y = (int)window.Definition.Y.GetValueOrDefault(OverlayHeight / 2);
+                    int x = window.Definition.X.GetValueOrDefault((int)(OverlayWidth / 2));
+                    int y = window.Definition.Y.GetValueOrDefault((int)(OverlayHeight / 2));
                     if (x >= 0 && y >= 0)
                     {
                         ImGui.SetWindowPos(new Vector2(x, y), ImGuiCond.Once);
@@ -529,7 +425,7 @@ public class OverlayHandler
                     RenderWindowContextMenu(window);
                 } catch (Exception ex)
                 {
-                    Logger.Error($"Error rendering context menu for window {window.Definition.Title}: {ex}");
+                    Logger.Error(_("Error rendering context menu for window {0}: {1}", window.Definition.Title, ex.Message));
                 }
 
                 try
@@ -537,7 +433,7 @@ public class OverlayHandler
                     window.Render();
                 } catch (Exception ex)
                 {
-                    Logger.Error($"Error rendering window {window.Definition.Title}: {ex}");
+                    Logger.Error(_("Error rendering window {0}: {1}", window.Definition.Title, ex.Message));
                 }
 
                 ImGui.End();
@@ -546,7 +442,7 @@ public class OverlayHandler
             {
                 try { ImGui.End(); }
                 catch { }
-                Logger.Error($"Error rendering window {window.Definition.Title}: {ex}");
+                Logger.Error(_("Error rendering window {0}: {1}", window.Definition.Title, ex.Message));
             }
         }
     }
@@ -556,7 +452,7 @@ public class OverlayHandler
         if (ImGui.BeginPopupContextWindow((byte*)0, ImGuiPopupFlags.MouseButtonRight))
         {
             window.RenderContextMenu();
-            if (ImGui.MenuItem("Close"))
+            if (ImGui.MenuItem(_("Close")))
             {
                 window.IsWindowOpen = false;
             }
@@ -595,12 +491,39 @@ public class OverlayHandler
         io.ConfigDpiScaleFonts = true;
         io.ConfigDpiScaleViewports = true;
 
+        Language language = StateSettingsHandler.Current.GetSettings().DisplayLanguage;
+        string fontName = "Geist";
+
+        switch (language.EnglishName)
+        {
+            case "Japanese":
+                fontName = "NotoSansJP";
+                break;
+            case "Chinese (Simplified)":
+                fontName = "NotoSansSC";
+                break;
+            case "Chinese (Traditional)":
+                fontName = "NotoSansTC";
+                break;
+            case "Korean":
+                fontName = "NotoSansKR";
+                break;
+            case "Thai":
+                fontName = "NotoSansThai";
+                break;
+            case "Vietnamese":
+                fontName = "NotoSans";
+                break;
+            default:
+                break;
+        }
+
         List<Tuple<FontStyle, string>> fonts = new List<Tuple<FontStyle, string>>()
         {
-            new Tuple<FontStyle, string>(FontStyle.Medium, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", "Geist-Medium.ttf")),
-            new Tuple<FontStyle, string>(FontStyle.Regular, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", "Geist-Regular.ttf")),
-            new Tuple<FontStyle, string>(FontStyle.SemiBold, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", "Geist-SemiBold.ttf")),
-            new Tuple<FontStyle, string>(FontStyle.Bold, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", "Geist-Bold.ttf")),
+            new Tuple<FontStyle, string>(FontStyle.Medium, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", $"{fontName}", $"{fontName}-Medium.ttf")),
+            new Tuple<FontStyle, string>(FontStyle.Regular, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", $"{fontName}", $"{fontName}-Regular.ttf")),
+            new Tuple<FontStyle, string>(FontStyle.SemiBold, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", $"{fontName}", $"{fontName}-SemiBold.ttf")),
+            new Tuple<FontStyle, string>(FontStyle.Bold, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts", $"{fontName}", $"{fontName}-Bold.ttf")),
         };
 
         // Set fonts
@@ -611,10 +534,10 @@ public class OverlayHandler
                 string fontPath = fonts[i].Item2;
                 if (!File.Exists(fontPath))
                 {
-                    Logger.Error($"Font file not found at {fontPath}");
+                    Logger.Error(_("Font file not found at {0}", fontPath));
                     continue;
                 }
-                ImFont* font = io.Fonts.AddFontFromFileTTF(fontPath, 18f);
+                ImFont* font = io.Fonts.AddFontFromFileTTF(fontPath, overlaySettings.BaseFontSize);
                 ImFontPtr fontPtr = new ImFontPtr(font);
                 Fonts[fonts[i].Item1] = fontPtr;
             }
@@ -623,7 +546,7 @@ public class OverlayHandler
         ImGuiImplGLFW.SetCurrentContext(imGuiContext);
         if (!ImGuiImplGLFW.InitForOpenGL(Unsafe.BitCast<GLFWwindowPtr, Hexa.NET.ImGui.Backends.GLFW.GLFWwindowPtr>(glfwWindow), true))
         {
-            Logger.Error("Failed to init ImGui Impl GLFW");
+            Logger.Error(_("Failed to init ImGui Impl GLFW"));
             GLFW.Terminate();
             return false;
         }
@@ -631,7 +554,7 @@ public class OverlayHandler
         ImGuiImplOpenGL3.SetCurrentContext(imGuiContext);
         if (!ImGuiImplOpenGL3.Init(glslVersion))
         {
-            Logger.Error("Failed to init ImGui Impl OpenGL3");
+            Logger.Error(_("Failed to init ImGui Impl OpenGL3"));
             GLFW.Terminate();
             return false;
         }
@@ -649,14 +572,14 @@ public class OverlayHandler
             GLFW.SetErrorCallback((error, description) =>
             {
                 # if DEBUG
-                Logger.Error($"GLFW Error {error}: {Utils.DecodeStringUTF8(description)}");
+                Logger.Error(_("GLFW Error {0}: {1}", error, Utils.DecodeStringUTF8(description)));
                 # endif
             });
         }
 
         unsafe
         {
-            Logger.Info("Initializing GLFW Version: " + Utils.DecodeStringUTF8(GLFW.GetVersionString()));
+            Logger.Info(_("Initializing GLFW Version: {0}", Utils.DecodeStringUTF8(GLFW.GetVersionString())));
         }
 
         // This code sets the platform to X11 instead of wayland. This only needs to be
@@ -668,14 +591,15 @@ public class OverlayHandler
             GLFW.InitHint(GLFW.GLFW_PLATFORM, GLFW.GLFW_PLATFORM_X11);
         }
 
-        Console.WriteLine("Initializing GLFW...");
+        Logger.Info(_("Initializing GLFW..."));
         GLFW.Init();
         GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
         GLFW.WindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
         GLFW.WindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-    #if MACOSX
-        GLFW.WindowHint(GLFW.GLFW_OPENGL_FORWARD_COMPAT, 1); // Required on Mac
-    #endif
+
+        # if LINUX
+            GLFW.WindowHint(GLFW.GLFW_CONTEXT_CREATION_API, GLFW.GLFW_EGL_CONTEXT_API);
+        # endif
 
         GLFW.WindowHint(GLFW.GLFW_TRANSPARENT_FRAMEBUFFER, 1);  // Transparent
         GLFW.WindowHint(GLFW.GLFW_DECORATED, 0);                // No window decorations
@@ -691,20 +615,29 @@ public class OverlayHandler
         // NOTE: Width and height set to screen-2
         // If they are set to the screen size, windows does some optimizations that cause the window
         // to go full black when focused. Setting these to -2 seems to prevent that.
-        glfwWindow = GLFW.CreateWindow(width - 2, height - 2, "ETS2LA overlay", null, null);
+        glfwWindow = GLFW.CreateWindow(width - 2, height - 2, "ETS2LA Overlay", null, null);
         if (glfwWindow.IsNull)
         {
-            Logger.Error("Failed to create GLFW window");
+            Logger.Error(_("Failed to create GLFW window"));
             GLFW.Terminate();
             return false;
         }
+
+        # if WINDOWS
         GLFW.SetWindowPos(glfwWindow, 1, 1);
+        # endif
 
         return true;
     }
 
     public void RegisterWindow(WindowDefinition def, Action renderAction, Optional<Action> renderContextMenuAction = default)
     {
+        if (overlaySettings.DisableOverlay)
+        {
+            Logger.Warn(_("Overlay is disabled in settings, skipping window registration for {0}.", def.Title));
+            return;
+        }
+
         foreach (var window in windows)
         {
             if (window.Definition.Title == def.Title)
@@ -717,6 +650,11 @@ public class OverlayHandler
         }
         
         var newWindow = new ExternalWindow(def, renderAction, renderContextMenuAction.GetValueOrDefault(() => { }));
+        if (def.Open.HasValue)
+        {
+            newWindow.IsWindowOpen = def.Open.Value;
+        }
+
         windows.Add(newWindow);
     }
 
@@ -746,5 +684,6 @@ public class OverlayHandler
     public void Shutdown()
     {
         shutdown = true;
+        VisionHandler.Current.Shutdown();
     }
 }

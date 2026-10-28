@@ -1,6 +1,7 @@
 using ETS2LA.Shared;
 using ETS2LA.Logging;
 using ETS2LA.Backend.Events;
+using static ETS2LA.Translations.T;
 
 using System.Numerics;
 using System.Diagnostics;
@@ -56,6 +57,7 @@ public class TrafficVehicle : BaseVehicle
     public TrafficTrailer[] trailers = Array.Empty<TrafficTrailer>();
 
     // These are only internal
+    public KalmanFilter speedFilter = new KalmanFilter(q: 0.008f, r: 0.4f);
     public Vector3 lastPosition = Vector3.Zero;
     public float lastUpdateTime = 0f;
 }
@@ -71,17 +73,17 @@ public class TrafficProvider
     public static TrafficProvider Current => _instance.Value;
 
     private float UpdateRate { get; set; } = 1f / 60f;
-    private float SpeedUpdateRateInTMP = 1f / 2f;
+    private float SpeedUpdateRateInTMP = 1f / 10f;
     public string EventString = "ETS2LA.Game.SDK.Traffic.Data";
 
     private MemoryReader _reader;
     private TrafficData? _currentData = new();
     private TrafficVehicle[] _lastVehicles = Array.Empty<TrafficVehicle>();
+    private readonly Dictionary<short, TrafficVehicle> _lastVehicleById = new();
 
 
     string mmapName = "Local\\ETS2LATraffic";
     string mmapNameLinux = "/dev/shm/ETS2LATraffic";
-    string mmapNameMacOS = "/tmp/ETS2LATraffic";
     int mmapSize = 6800;
 
     private MemoryMappedFile? _mmf;
@@ -124,7 +126,7 @@ public class TrafficProvider
             try { Update(); }
             catch (Exception ex)
             {
-                Logger.Error(ex.ToString(), "Error in traffic update loop.");
+                Logger.Error(ex.ToString(), _("Error in traffic update loop."));
             }
         }
     }
@@ -138,8 +140,6 @@ public class TrafficProvider
         {
             #if WINDOWS
                 _mmf = MemoryMappedFile.OpenExisting(mmapName);
-            #elif MACOSX
-                _mmf = MemoryMappedFile.CreateFromFile(mmapNameMacOS);
             # else
                 _mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif
@@ -156,7 +156,7 @@ public class TrafficProvider
         catch (Exception ex)
         {
             CloseMemory();
-            Logger.Error($"Error initializing memory mapped file: {ex.Message}");
+            Logger.Error(_("Error initializing memory mapped file: {0}", ex.Message));
             Thread.Sleep(10000);
             return false;
         }
@@ -270,25 +270,35 @@ public class TrafficProvider
         _lastVehicles = _currentData.vehicles;
         _currentData.vehicles = vehicles.ToArray();
 
+        bool anyTMP = false;
+        foreach (var vehicle in _currentData.vehicles)
+        {
+            if (vehicle.isTMP) { anyTMP = true; break; }
+        }
+
+        _lastVehicleById.Clear();
+        if (anyTMP)
+        {
+            foreach (var lastVehicle in _lastVehicles)
+                _lastVehicleById.TryAdd(lastVehicle.id, lastVehicle);
+        }
+
         // Update vehicle speeds
         var curTime = Environment.TickCount / 1000f;
         foreach (var vehicle in _currentData.vehicles)
         {
-            if (vehicle.isTMP)
+            if (vehicle.isTMP && _lastVehicleById.TryGetValue(vehicle.id, out var lastVehicle))
             {
-                var lastVehicle = _lastVehicles.FirstOrDefault(v => v.id == vehicle.id);
-                if (lastVehicle != null)
+                vehicle.speed = lastVehicle.speed;
+                vehicle.speedFilter = lastVehicle.speedFilter;
+                vehicle.lastPosition = lastVehicle.lastPosition;
+                vehicle.lastUpdateTime = lastVehicle.lastUpdateTime;
+                if (curTime - vehicle.lastUpdateTime > SpeedUpdateRateInTMP)
                 {
-                    vehicle.speed = lastVehicle.speed;
-                    vehicle.lastPosition = lastVehicle.lastPosition;
-                    vehicle.lastUpdateTime = lastVehicle.lastUpdateTime;
-                    if (curTime - vehicle.lastUpdateTime > SpeedUpdateRateInTMP)
-                    {
-                        var distance = Vector3.Distance(vehicle.lastPosition, vehicle.Position);
-                        vehicle.speed = distance / (curTime - vehicle.lastUpdateTime);
-                        vehicle.lastPosition = vehicle.Position;
-                        vehicle.lastUpdateTime = curTime;
-                    }
+                    var distance = Vector3.Distance(vehicle.lastPosition, vehicle.Position);
+                    vehicle.speed = vehicle.speedFilter.Update(distance / (curTime - vehicle.lastUpdateTime));
+                    vehicle.lastPosition = vehicle.Position;
+                    vehicle.lastUpdateTime = curTime;
                 }
             }
         }

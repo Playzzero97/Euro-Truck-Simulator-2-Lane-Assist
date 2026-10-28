@@ -1,14 +1,18 @@
 ﻿using Velopack;
 using Velopack.Locators;
 
-using ETS2LA.Tutorials;
+// using ETS2LA.Tutorials;
 using ETS2LA.Overlay;
 using ETS2LA.Backend;
+using ETS2LA.Game;
 using ETS2LA.Game.Telemetry;
 using ETS2LA.State;
+using ETS2LA.Logging;
 using ETS2LA.Settings.Global;
 using ETS2LA.Telemetry;
 using ETS2LA.Networking;
+using ETS2LA.UI;
+using static ETS2LA.Translations.T;
 
 using OpenTelemetry;
 using OpenTelemetry.Resources;
@@ -19,10 +23,14 @@ using OpenTelemetry.Exporter;
 namespace ETS2LA;
 
 internal static class Program
-{   
+{
+    private static TracerProvider? tracerProvider;
+    private static MeterProvider? meterProvider;
+
     /// <summary>
     ///  Main entrypoint for ETS2LA.
     /// </summary>
+    [STAThread]
     static void Main(string[] args)
     {
         // Velopack is the installer / update manager
@@ -33,7 +41,7 @@ internal static class Program
             #if DEBUG
             .SetLocator(new TestVelopackLocator(
                 appId: "ETS2LA",
-                version: "1.0.0",
+                version: "2026.8.1",
                 packagesDir: "./Releases/Portable"
             ))
             #endif
@@ -43,13 +51,29 @@ internal static class Program
                              ?? System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) 
                              ?? "unknown"; 
 
+        Utils.InitializeTranslations();
+
+        // This is for unobserved exceptions, i.e. plugins and other Task.Run() calls etc..
+        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        {
+            e.SetObserved(); // Prevents an immediate crash, we'll handle termination in HandleFatalException instead.
+            Utils.HandleFatalException(e.Exception, tracerProvider, meterProvider);
+        };
+
+        args = Utils.WaitForRestartParentProcess(args);
+
+        if (Utils.IsRunningAsRoot())
+            Utils.HandleContinueClose(_("ETS2LA is running as a system administrator. This puts your system at risk if you use 3rd party plugins. Select Yes to continue anyway and accept the risk."));
+
+        if (Utils.DoesETS2LAProcessExist())
+            throw new InvalidOperationException("ETS2LA is already running, please close it from the Task Manager.");
+
         // For OTel (OpenTelemetry)
         var appResource = ResourceBuilder.CreateDefault()
             .AddService("ETS2LA", serviceVersion: currentVersion)
             .AddAttributes(OTelAttributes.GetAttributes());
 
-        // These get automatically removed because of using var
-        using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+        tracerProvider = Sdk.CreateTracerProviderBuilder()
             .SetResourceBuilder(appResource)
             .AddSource("ETS2LA.*")
             .AddOtlpExporter(options =>
@@ -59,7 +83,7 @@ internal static class Program
             })
             .Build();
         
-        using var meterProvider = Sdk.CreateMeterProviderBuilder()
+        meterProvider = Sdk.CreateMeterProviderBuilder()
             .SetResourceBuilder(appResource)
             .AddMeter("ETS2LA.*")
             .AddOtlpExporter(options =>
@@ -70,14 +94,14 @@ internal static class Program
             .Build();
 
         bool shutdown = false;
-        var AnalyticsThread = Task.Run(() =>
+        var AnalyticsThread = Task.Factory.StartNew(() =>
         {
             while (!shutdown)
             {
                 AppAnalytics.Pulse();
                 Thread.Sleep(TimeSpan.FromMinutes(1));
             }
-        });
+        }, TaskCreationOptions.LongRunning);
 
         var BackendThread = Task.Run(() =>
         {
@@ -87,8 +111,9 @@ internal static class Program
             var backend = PluginBackend.Current;
             var telemetry = GameTelemetry.Current;
             var state = ApplicationState.Current;
-            var tutorials = TutorialHandler.Current;
             var networking = NetworkingClient.Current;
+            var games = GameHandler.Current;
+            backend.Start();
         });
 
         # if LINUX
@@ -102,23 +127,19 @@ internal static class Program
             }
         # endif
 
-        # if MACOSX
-            if (!OverlayHandler.Current.InitWindowOnMainThread())
-            {
-                Console.WriteLine("Failed to initialize overlay window");
-            }
-        # endif
-        
-
         // Gotta wait for the UI thread to close (i.e. user closed the window)
         // and then tell the backend to shutdown too.
-        UI.Program.Main(args);
+        UserInterface.Start(args);
 
         shutdown = true;
         PluginBackend.Current.Shutdown();
         OverlayHandler.Current.Shutdown();
         GameTelemetry.Current.Shutdown();
         ApplicationState.Current.Shutdown();
-        TutorialHandler.Current.Shutdown();
+        // TutorialHandler.Current.Shutdown();
+
+        LogFileWriter.Current.Save();
+        meterProvider?.Dispose();
+        tracerProvider?.Dispose();
     }
 }

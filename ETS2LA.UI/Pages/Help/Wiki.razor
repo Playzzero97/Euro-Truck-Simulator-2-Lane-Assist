@@ -1,0 +1,16 @@
+@page "/help/wiki"
+
+@code {
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        
+        WindowState.Current.IsSidebarOpen = false;
+        WindowState.Current.RequestFullReload();
+    }
+}
+
+<div class="w-full h-full overflow-hidden">
+    <iframe src="https://ets2la.com/?headerless#/help/faq" class="w-full h-full" style="border: none;"></iframe>
+</div>

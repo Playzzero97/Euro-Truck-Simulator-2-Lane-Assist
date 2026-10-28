@@ -32,21 +32,16 @@
     <ProjectReference Include="..\ETS2LA.Game\ETS2LA.Game.csproj">
       <Private>false</Private>
     </ProjectReference>
+    <ProjectReference Include="..\ETS2LA.ML\ETS2LA.ML.csproj">
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
-
-  <Target Name="RemoveImGuiImplGLFWOnMac" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <Delete Files="$(OutputPath)runtimes/osx-arm64/native/ImGuiImplGLFW.dylib" />
-  </Target>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <DefineConstants>$(DefineConstants);MACOSX</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+  <PropertyGroup Condition="'$(OS)' == 'Unix'">
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 </Project>

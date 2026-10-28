@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using ETS2LA.Logging;
 using ETS2LA.Settings;
+using static ETS2LA.Translations.T;
 
 using SoundFlow.Abstracts;
 using SoundFlow.Abstracts.Devices;
@@ -66,6 +67,14 @@ public class AudioHandler
     }
 
     /// <summary>
+    ///  Get the queue length (check if audio is currently playing).
+    /// </summary>
+    public int GetQueueLength()
+    {
+        return _queue.Count;
+    }
+
+    /// <summary>
     ///  Queue an audio file for playback.
     /// </summary>
     /// <param name="filepath">Filepath of the audio file to play.</param>
@@ -73,9 +82,15 @@ public class AudioHandler
     /// <param name="loopCount">How many times this file should be played.</param>
     public void Queue(string filepath, bool overrideCurrent = false, int loopCount = 1)
     {
+        if (!File.Exists(filepath))
+        {
+            Logger.Warn(_("File not found: {0}", filepath));
+            return;
+        }
+
         if (overrideCurrent)
         {
-            while (_queue.TryDequeue(out _)) { }
+            while (_queue.TryDequeue(out AudioJob? x)) { }
             
             _currentCts?.Cancel();
         }
@@ -124,7 +139,11 @@ public class AudioHandler
             }
             catch (OperationCanceledException)
             {
-                Logger.Info("Audio playback canceled");
+                Logger.Info(_("Audio playback canceled"));
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(_("Error playing audio file {0}: {1}", job.Filename, ex.Message));
             }
             finally 
             {
@@ -137,7 +156,7 @@ public class AudioHandler
     private async Task PlaySound(AudioJob job, CancellationToken token)
     {
         if (token.IsCancellationRequested) return;
-        Logger.Info($"Playing sound: {job.Filename}");
+        Logger.Info(_("Playing sound: {0}", job.Filename));
 
         using var stream = File.OpenRead(job.Filename);
         using var dataProvider = new AssetDataProvider(engine, format, stream);
@@ -161,8 +180,6 @@ public class AudioHandler
             outputDevice.Stop();
             outputDevice.MasterMixer.RemoveComponent(player);
         }
-
-        outputDevice.Stop();
     }
 
     private void OnSettingsChanged(AudioSettings audioSettings)

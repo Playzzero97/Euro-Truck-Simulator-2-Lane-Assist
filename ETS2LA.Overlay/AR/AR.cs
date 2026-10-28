@@ -1,12 +1,14 @@
 using ETS2LA.Game.SDK;
 using ETS2LA.Logging;
+using ETS2LA.Game.Telemetry;
+using ETS2LA.Overlay.Shaders;
 
 using System.Numerics;
-using Hexa.NET.ImGui;
 using TruckLib;
+
+using Hexa.NET.ImGui;
 using Hexa.NET.OpenGL;
 using Hexa.NET.ImGui.Backends.OpenGL3;
-using ETS2LA.Game.Telemetry;
 
 namespace ETS2LA.Overlay.AR;
 
@@ -33,9 +35,19 @@ public class ARRenderer
     private ARWindowBuffer currentWindowBuffer;
     private ImGuiContextPtr oldContext;
 
-    public ARRenderer(GL gl)
+    // Shaders
+    private LineWithGradient lineWithGradientShader;
+
+    public ARRenderer(GL? gl)
     {
+        if (gl == null)
+        {
+            Logger.Error("ARRenderer: GL context is null, cannot initialize AR renderer.");
+            return;
+        }
+
         this.gl = gl;
+        this.lineWithGradientShader = new LineWithGradient(gl);
 
         // The font atlas needs to be shared between the main context
         // and our AR context here.
@@ -60,7 +72,6 @@ public class ARRenderer
         OverlaySettingsHandler.Current.OnSettingsUpdated += OnOverlaySettingsUpdated;
 
         ImGui.SetCurrentContext(mainContext);
-
     }
 
     private void OnOverlaySettingsUpdated(OverlaySettings newSettings)
@@ -94,6 +105,14 @@ public class ARRenderer
     }
 
     /// <summary>
+    ///  Renders all shaders for this frame.
+    /// </summary>
+    public void RenderShaders()
+    {
+        lineWithGradientShader.RenderPass();
+    }
+
+    /// <summary>
     ///  Register a new AR rendering callback. The provided callback will be called
     ///  every frame.
     /// </summary>
@@ -124,7 +143,6 @@ public class ARRenderer
     {
         if (thisFrameView != default)
             return thisFrameView;
-        
 
         thisFrameOffsetX = 512 * cameraData.cx;
         thisFrameOffsetZ = 512 * cameraData.cy;
@@ -172,6 +190,10 @@ public class ARRenderer
         return thisFrameProjection;
     }
 
+    // Closer than this the perspective divide throws the point way outside -1 to 1 instead
+    // of behind us, which stretches anything drawn from several points across the screen.
+    private const float NearClipDistance = 1.0f;
+
     /// <summary>
     ///  Convert a world position into a screen coordinate. This takes all current
     ///  camera variables into account.
@@ -186,7 +208,7 @@ public class ARRenderer
             thisFrameViewProjection = GetViewMatrix() * GetProjectionMatrix();
 
         Vector4 clipSpacePos = Vector4.Transform(new Vector4(worldPos, 1.0f), thisFrameViewProjection);
-        if (clipSpacePos.W <= 0.1f) return null; // behind the camera
+        if (clipSpacePos.W <= NearClipDistance) return null; // behind or right on top of the camera
 
         // perspective divide to normalize coordinates
         // so that means x,y is -1 to 1 where 0,0 is the center
@@ -196,6 +218,21 @@ public class ARRenderer
         float y = (1.0f - ndc.Y) * 0.5f * destinationHeight;
 
         return new Vector2(x, y);
+    }
+
+    /// <summary>
+    ///  Converts a world position to -1 to 1 normalized device coordinates.
+    ///  Used by shaders.
+    /// </summary>
+    public Vector2? WorldToNDC(Vector3 worldPos)
+    {
+        if (thisFrameViewProjection == default)
+            thisFrameViewProjection = GetViewMatrix() * GetProjectionMatrix();
+
+        Vector4 clipSpacePos = Vector4.Transform(new Vector4(worldPos, 1.0f), thisFrameViewProjection);
+        if (clipSpacePos.W <= NearClipDistance) return null; // behind or right on top of the camera
+
+        return new Vector2(clipSpacePos.X / clipSpacePos.W, clipSpacePos.Y / clipSpacePos.W);
     }
 
     /// <summary>
@@ -239,7 +276,15 @@ public class ARRenderer
             ((rgba & 0x000000FF) << 24); 
     }
 
-    private bool AllPointsOutsideRenderDistance(ARCoordinate[] points)
+    private bool ShouldRenderAR()
+    {
+        if (!overlaySettings.RenderAR || overlaySettings.DisableOverlay)
+            return false;
+
+        return true;
+    }
+
+    private bool AllPointsOutsideRenderDistance(params ReadOnlySpan<ARCoordinate> points)
     {
         float maxDistance = overlaySettings.MaxARDistance;
         Vector3 cameraPos = cameraData.position;
@@ -265,7 +310,10 @@ public class ARRenderer
     /// <param name="thickness">Thickness of the line in pixels.</param>
     public void Draw3DLine(ARCoordinate start, ARCoordinate end, UInt32 color, float thickness = 1.0f)
     {
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { start, end }))
+        if (!ShouldRenderAR())
+            return;
+        
+        if (AllPointsOutsideRenderDistance(start, end))
             return;
         
         Vector2? p1 = WorldToScreen(ARCoordinateToVector3(start), thisFrameWidth, thisFrameHeight);
@@ -280,6 +328,113 @@ public class ARRenderer
     }
 
     /// <summary>
+    ///   Renders a HUD guide line from a single list of centerline points.
+    ///   WARNING: This function has partly been created by Gemini to support the shader it made.
+    ///            This function has however been modified extensively, unlike the shader itself.
+    /// </summary>
+    /// <param name="points">Ordered path coordinates (from closest to farthest point)</param>
+    /// <param name="color">RGBA uint color format</param>
+    /// <param name="glowWidth">Width of the glow bleed in world units</param>
+    /// <param name="isLeftLine">True if this is the left boundary line, False if right boundary</param>
+    public void Draw3DLineWithGradient(IReadOnlyList<ARCoordinate> leftPoints, IReadOnlyList<ARCoordinate> rightPoints, uint color, float transparentValue = 0.0f, uint secondaryColor = 0x00000000, float secondaryColorDist = -1f)
+    {
+        if (!ShouldRenderAR())
+            return;
+        
+        if (leftPoints == null || rightPoints == null)
+            return;
+
+        int count = Math.Min(leftPoints.Count, rightPoints.Count);
+        if (count < 2)
+            return;
+
+        Vector3 camPos = cameraData.position;
+        float nearFadeStart = 35f;
+        float nearFadeEnd = 15f;
+        float farFadeStart = 60f;
+        float farFadeEnd = 150f;
+        float secondaryColorFadeStart = secondaryColorDist - 10f;
+        float secondaryColorFadeEnd = secondaryColorDist + 10f;
+
+        Vector4 colVec = new Vector4(
+            ((color & 0xFF000000) >> 24) / 255.0f,
+            ((color & 0x00FF0000) >> 16) / 255.0f,
+            ((color & 0x0000FF00) >> 8) / 255.0f,
+            (color & 0x000000FF) / 255.0f
+        );
+
+        Vector4 secondaryColorVec = new Vector4(
+            ((secondaryColor & 0xFF000000) >> 24) / 255.0f,
+            ((secondaryColor & 0x00FF0000) >> 16) / 255.0f,
+            ((secondaryColor & 0x0000FF00) >> 8) / 255.0f,
+            (secondaryColor & 0x000000FF) / 255.0f
+        );
+
+        float GetProgressFloat(float distance)
+        {
+            if (distance < nearFadeEnd)
+                return 1.0f;
+            if (distance < nearFadeStart)
+                return (distance - nearFadeStart) / (nearFadeEnd - nearFadeStart);
+            if (distance > farFadeStart)
+                return (distance - farFadeStart) / (farFadeEnd - farFadeStart);
+            if (distance > farFadeEnd)
+                return 1.0f;
+            return 0.0f;
+        }
+
+        Vector4 GetColor(float distance)
+        {
+            if (secondaryColorDist > 0f && distance >= secondaryColorFadeStart && distance <= secondaryColorFadeEnd)
+            {
+                float t = (distance - secondaryColorFadeStart) / (secondaryColorFadeEnd - secondaryColorFadeStart);
+                return Vector4.Lerp(colVec, secondaryColorVec, t);
+            }
+            else if (secondaryColorDist > 0f && distance >= secondaryColorFadeEnd)
+            {
+                return secondaryColorVec;
+            }
+            return colVec;
+        }
+
+        for (int i = 0; i < count - 1; i++)
+        {
+            ARCoordinate outStart = leftPoints[i];
+            ARCoordinate inStart  = rightPoints[i];
+            ARCoordinate outEnd   = leftPoints[i + 1];
+            ARCoordinate inEnd    = rightPoints[i + 1];
+
+            if (AllPointsOutsideRenderDistance(outStart, inStart, outEnd, inEnd))
+                continue;
+
+            Vector2? ndcOutStart = WorldToNDC(ARCoordinateToVector3(outStart));
+            Vector2? ndcInStart  = WorldToNDC(ARCoordinateToVector3(inStart));
+            Vector2? ndcInEnd    = WorldToNDC(ARCoordinateToVector3(inEnd));
+            Vector2? ndcOutEnd   = WorldToNDC(ARCoordinateToVector3(outEnd));
+
+            if (!ndcOutStart.HasValue || !ndcInStart.HasValue || !ndcInEnd.HasValue || !ndcOutEnd.HasValue)
+                continue;
+
+            float distanceStart = Vector3.Distance(ARCoordinateToVector3(outStart), camPos);
+            float distanceEnd = Vector3.Distance(ARCoordinateToVector3(outEnd), camPos);
+
+            
+
+            lineWithGradientShader.AddGlowQuad(
+                ndcOutStart.Value,
+                ndcInStart.Value,
+                ndcInEnd.Value,
+                ndcOutEnd.Value,
+                GetColor(distanceStart),
+                GetColor(distanceEnd),
+                GetProgressFloat(distanceStart),
+                GetProgressFloat(distanceEnd),
+                transparentValue
+            );
+        }
+    }
+
+    /// <summary>
     ///  Draw a 3D circle in world space.
     /// </summary>
     /// <param name="center">The center of the circle.</param>
@@ -289,7 +444,10 @@ public class ARRenderer
     /// <param name="thickness">The thickness of the circle outline.</param>
     public void Draw3DCircle(ARCoordinate center, float radius, UInt32 color, bool filled = false, float thickness = 1)
     {
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { center }))
+        if (!ShouldRenderAR())
+            return;
+        
+        if (AllPointsOutsideRenderDistance(center))
             return;
 
         Vector2? centerScreen = WorldToScreen(ARCoordinateToVector3(center), thisFrameWidth, thisFrameHeight);
@@ -317,6 +475,9 @@ public class ARRenderer
     /// <param name="thickness">The thickness of the polygon outline.</param>
     public void Draw3DPolygon(ARCoordinate[] points, UInt32 color, bool filled = false, float thickness = 1)
     {
+        if (!ShouldRenderAR())
+            return;
+        
         if (points == null || points.Length < 3)
             return;
 
@@ -366,7 +527,10 @@ public class ARRenderer
     /// <param name="thickness">The thickness of a non filled quad.</param>
     public void Draw3DQuad(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, ARCoordinate p4, UInt32 color, bool filled = false, float thickness = 1)
     {
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { p1, p2, p3, p4 }))
+        if (!ShouldRenderAR())
+            return;
+        
+        if (AllPointsOutsideRenderDistance(p1, p2, p3, p4))
             return;
         
         Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), thisFrameWidth, thisFrameHeight);
@@ -404,7 +568,10 @@ public class ARRenderer
     /// <param name="thickness">The thickness of a non filled triangle.</param>
     public void Draw3DTriangle(ARCoordinate p1, ARCoordinate p2, ARCoordinate p3, UInt32 color, bool filled = false, float thickness = 1)
     {
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { p1, p2, p3 }))
+        if (!ShouldRenderAR())
+            return;
+        
+        if (AllPointsOutsideRenderDistance(p1, p2, p3))
             return;
 
         Vector2? p1s = WorldToScreen(ARCoordinateToVector3(p1), thisFrameWidth, thisFrameHeight);
@@ -438,16 +605,47 @@ public class ARRenderer
     /// <param name="position"></param>
     /// <param name="text"></param>
     /// <param name="color"></param>
-    public void Draw3DText(ARCoordinate position, string text, UInt32 color)
+    /// <param name="centerX">Whether to center the text horizontally on the position.</param>
+    /// <param name="centerY">Whether to center the text vertically on the position.</param>
+    public void Draw3DText(ARCoordinate position, string text, UInt32 color, float xFactor = 0f, float yFactor = 0f, UInt32? bgColor = null, UInt32? bgBorderColor = null, float bgBorderThickness = 1f, float bgPaddingX = 0f, float bgPaddingY = 0f, float bgRounding = 0f)
     {
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { position }))
+        if (!ShouldRenderAR())
+            return;
+        
+        if (AllPointsOutsideRenderDistance(position))
             return;
 
         Vector2? screenPos = WorldToScreen(ARCoordinateToVector3(position), thisFrameWidth, thisFrameHeight);
         if (!screenPos.HasValue) return;
 
+        Vector2 textSize = ImGui.CalcTextSize(text);
+        Vector2 drawPos = screenPos.Value;
+        drawPos.X -= textSize.X * xFactor;
+        drawPos.Y -= textSize.Y * yFactor;
+
+        if (bgColor.HasValue)
+        {
+            ImGui.GetBackgroundDrawList().AddRectFilled(
+                new Vector2(drawPos.X - bgPaddingX, drawPos.Y - bgPaddingY),
+                new Vector2(drawPos.X + textSize.X + bgPaddingX, drawPos.Y + textSize.Y + bgPaddingY),
+                ConvertColor(bgColor.Value),
+                bgRounding
+            );
+        }
+
+        if (bgBorderColor.HasValue)
+        {
+            ImGui.GetBackgroundDrawList().AddRect(
+                new Vector2(drawPos.X - bgPaddingX, drawPos.Y - bgPaddingY),
+                new Vector2(drawPos.X + textSize.X + bgPaddingX, drawPos.Y + textSize.Y + bgPaddingY),
+                ConvertColor(bgBorderColor.Value),
+                bgRounding,
+                bgBorderThickness
+            );
+        }
+
         ImGui.GetBackgroundDrawList().AddText(
-            screenPos.Value, ConvertColor(color), text
+            drawPos, ConvertColor(color), text
         );
     }
 
@@ -467,6 +665,9 @@ public class ARRenderer
         float bgOpacity = 1.0f
     )
     {
+        if (!ShouldRenderAR())
+            return;
+        
         if (isWindowContextInitialized) {
             Logger.Warn("AR window context already initialized. You probably called BeginWindow without a matching EndWindow.");
             return;
@@ -498,6 +699,9 @@ public class ARRenderer
     /// <param name="width">Width of the window in world coordinates.</param>
     public void EndWindow(ARCoordinate center, Quaternion rotation, float width, bool invertY = false)
     {
+        if (!ShouldRenderAR())
+            return;
+        
         var windowSize = ImGui.GetWindowSize();
         var windowPos = ImGui.GetWindowPos(); 
 
@@ -518,7 +722,7 @@ public class ARRenderer
         // onto the main overlay background.
         ImGui.SetCurrentContext(oldContext);
 
-        if (AllPointsOutsideRenderDistance(new ARCoordinate[] { center }))
+        if (AllPointsOutsideRenderDistance(center))
         {
             isWindowContextInitialized = false;
             return;
@@ -587,5 +791,3 @@ public class ARRenderer
         isWindowContextInitialized = false;
     }
 }
-
-// 

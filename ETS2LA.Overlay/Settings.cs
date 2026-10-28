@@ -8,9 +8,13 @@ public class OverlaySettings
     public bool LimitFramerate = true;
     public int MaxFramerate = 30;
     public bool SupportMultipleViewports = false;
+    public bool OverlayInteractionIsToggle = true;
+    public bool DisableOverlay = false;
+    public int BaseFontSize = 18;
 
     // AR
     public bool RenderAR = true;
+    public bool SimplifiedGraphics = false;
     public bool DontRenderWhenPaused = true;
     public float MaxARDistance = 150.0f;
 }

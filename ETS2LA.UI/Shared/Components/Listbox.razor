@@ -1,0 +1,58 @@
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Description { get; set; } = string.Empty;
+
+    [Parameter]
+    public IReadOnlyList<string> Options { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public int SelectedIndex { get; set; } = 0;
+
+    [Parameter]
+    public EventCallback<int> SelectedIndexChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnSelect { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string Class { get; set; } = string.Empty;
+
+    private async Task SelectOption(int index)
+    {
+        if (Disabled) return;
+
+        SelectedIndex = index;
+        await SelectedIndexChanged.InvokeAsync(SelectedIndex);
+        await OnSelect.InvokeAsync(SelectedIndex);
+    }
+}
+
+<div class="flex justify-between w-full items-center hover:bg-control-bg-dark @(Class)">
+    <div class="flex gap-2 items-center">
+        <p>@Title</p>
+        @if (!string.IsNullOrEmpty(Description))
+        {
+            <TooltipIcon Content="@Description"/>
+        }
+    </div>
+    <div class="flex gap-2 min-w-80">
+        @for (int i = 0; i < Options.Count; i++)
+        {
+            int index = i;
+            bool isSelected = index == SelectedIndex;
+
+            <button type="button"
+                    disabled="@Disabled"
+                    class="px-4 py-2 w-full cursor-pointer rounded-sm bg-control-bg description hover:bg-control/50 hover:text-text text-[14px] transition-colors @(isSelected ? "text-text bg-accent-dark!" : "")"
+                    @onclick="() => SelectOption(index)">
+                @UserInterfaceUtils.ClassnameWithSpaces(Options[index])
+            </button>
+        }
+    </div>
+</div>

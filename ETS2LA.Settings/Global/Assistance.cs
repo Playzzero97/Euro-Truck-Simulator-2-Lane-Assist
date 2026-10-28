@@ -42,6 +42,13 @@ public enum CollisionAvoidance
     Early
 }
 
+public enum TrafficRule
+{
+    TrafficLights,
+    Gates,
+    Speedlimits
+}
+
 [Serializable]
 public class AssistanceSettings
 {
@@ -50,12 +57,22 @@ public class AssistanceSettings
     public static AssistanceSettings Current => _instance.Value;
 
     public bool SeparateCruiseAndSteering { get; set; } = false;
+    public bool PauseWhenUnstable { get; set; } = true;
     public AccelerationResponseOption AccelerationResponse { get; set; } = AccelerationResponseOption.Normal;
     public SteeringSensitivityOption SteeringSensitivity { get; set; } = SteeringSensitivityOption.Normal;
     public FollowingDistanceOption FollowingDistance { get; set; } = FollowingDistanceOption.Normal;
     public SetSpeedBehaviour SetSpeedBehaviourOption { get; set; } = SetSpeedBehaviour.SpeedLimit;
     public SpeedLimitWarning SpeedLimitWarningOption { get; set; } = SpeedLimitWarning.Visual;
     public CollisionAvoidance CollisionAvoidanceOption { get; set; } = CollisionAvoidance.Early;
+    public float MaximumSpeed { get; set; } = 0f; // 0 = no limit
+    public List<TrafficRule> EnabledTrafficRules { get; set; } = new List<TrafficRule> { 
+        TrafficRule.TrafficLights, 
+        TrafficRule.Gates,
+        TrafficRule.Speedlimits 
+    };
+
+    [Obsolete("Use EnabledTrafficRules instead.")]
+    public bool IgnoreTrafficRules => !EnabledTrafficRules.Contains(TrafficRule.TrafficLights) && !EnabledTrafficRules.Contains(TrafficRule.Speedlimits);
 
     [NonSerialized]
     private SettingsHandler? _settingsHandler;
@@ -69,12 +86,15 @@ public class AssistanceSettings
             if (loadedSettings != null)
             {
                 SeparateCruiseAndSteering = loadedSettings.SeparateCruiseAndSteering;
+                PauseWhenUnstable = loadedSettings.PauseWhenUnstable;
                 AccelerationResponse = loadedSettings.AccelerationResponse;
                 SteeringSensitivity = loadedSettings.SteeringSensitivity;
                 FollowingDistance = loadedSettings.FollowingDistance;
                 SetSpeedBehaviourOption = loadedSettings.SetSpeedBehaviourOption;
                 SpeedLimitWarningOption = loadedSettings.SpeedLimitWarningOption;
                 CollisionAvoidanceOption = loadedSettings.CollisionAvoidanceOption;
+                MaximumSpeed = loadedSettings.MaximumSpeed;
+                EnabledTrafficRules = loadedSettings.EnabledTrafficRules;
             }
             _settingsHandler.RegisterListener<AssistanceSettings>("AssistanceSettings.json", OnSettingsChanged);
         }
@@ -90,11 +110,14 @@ public class AssistanceSettings
     public void OnSettingsChanged(AssistanceSettings newSettings)
     {
         SeparateCruiseAndSteering = newSettings.SeparateCruiseAndSteering;
+        PauseWhenUnstable = newSettings.PauseWhenUnstable;
         AccelerationResponse = newSettings.AccelerationResponse;
         SteeringSensitivity = newSettings.SteeringSensitivity;
         FollowingDistance = newSettings.FollowingDistance;
         SetSpeedBehaviourOption = newSettings.SetSpeedBehaviourOption;
         SpeedLimitWarningOption = newSettings.SpeedLimitWarningOption;
         CollisionAvoidanceOption = newSettings.CollisionAvoidanceOption;
+        MaximumSpeed = newSettings.MaximumSpeed;
+        EnabledTrafficRules = newSettings.EnabledTrafficRules;
     }
 }

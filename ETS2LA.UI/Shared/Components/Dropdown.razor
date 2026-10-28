@@ -1,0 +1,125 @@
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Description { get; set; } = string.Empty;
+
+    [Parameter]
+    public IReadOnlyList<string> Options { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public int SelectedIndex { get; set; } = 0;
+
+    [Parameter]
+    public EventCallback<int> SelectedIndexChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnSelect { get; set; }
+
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<int> SelectedIndices { get; set; } = Array.Empty<int>();
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> SelectedIndicesChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnMultiple { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string Class { get; set; } = string.Empty;
+
+    private bool isOpen = false;
+
+    private void ToggleOpen()
+    {
+        if (!Disabled)
+        {
+            isOpen = !isOpen;
+        }
+    }
+
+    private async Task SelectOption(int index)
+    {
+        if (Multiple)
+        {
+            var selectedIndices = SelectedIndices.Contains(index)
+                ? SelectedIndices.Where(selectedIndex => selectedIndex != index).ToArray()
+                : SelectedIndices.Append(index).ToArray();
+
+            SelectedIndices = selectedIndices;
+            await SelectedIndicesChanged.InvokeAsync(SelectedIndices);
+            await OnMultiple.InvokeAsync(SelectedIndices);
+            return;
+        }
+
+        SelectedIndex = index;
+        await SelectedIndexChanged.InvokeAsync(SelectedIndex);
+        await OnSelect.InvokeAsync(SelectedIndex);
+        isOpen = false;
+    }
+
+    private string GetSelectedOptionText()
+    {
+        if (Multiple)
+        {
+            return string.Join(", ", SelectedIndices
+                .Where(index => index >= 0 && index < Options.Count)
+                .Select(index => Options[index]));
+        }
+
+        if (Options.Count > 0 && SelectedIndex >= 0 && SelectedIndex < Options.Count)
+        {
+            return Options[SelectedIndex];
+        }
+        return string.Empty;
+    }
+}
+
+<div class="flex justify-between w-full h-full hover:bg-control-bg-dark items-center @(Class)">
+    <div class="flex gap-2 items-center">
+        <p>@Title</p>
+        @if (!string.IsNullOrEmpty(Description))
+        {
+            <TooltipIcon Content="@Description"/>
+        }
+    </div>
+
+    <div class="flex gap-4 relative @(Title == "" ? "w-full h-full" : "")">
+        <button type="button"
+                disabled="@Disabled"
+                class="w-full cursor-pointer border border-control-bg bg-control-bg rounded-md items-center flex @(Title != "" ? "h-11 px-4 min-w-80" : "h-full w-full px-2") justify-between @(isOpen ? "border-accent-dark!" : "")"
+                @onclick="ToggleOpen">
+            <p>@GetSelectedOptionText()</p>
+            <svg class="description transition-transform duration-200 @(isOpen ? "rotate-180" : "")" 
+                 xmlns="http://www.w3.org/2000/svg" width="1.5em" height="1.5em" viewBox="0 0 24 24">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9l6 6l6-6" />
+            </svg>
+        </button>
+
+        @if (isOpen)
+        {
+            <div class="absolute top-full left-0 mt-1 w-full min-w-24 max-h-48 bg-control-bg-dark rounded-md z-50 overflow-y-auto flex flex-col shadow-lg" 
+                @onmouseleave="() => isOpen = false">
+                @for (int i = 0; i < Options.Count; i++)
+                {
+                    int index = i;
+                    bool isSelected = Multiple ? SelectedIndices.Contains(index) : index == SelectedIndex;
+
+                    <button type="button"
+                            class="w-full min-w-24 px-4 py-2 text-left description hover:bg-control/50 hover:text-text text-[14px] transition-colors cursor-pointer @(isSelected ? "text-text bg-accent-dark!" : "")"
+                            @onclick="() => SelectOption(index)">
+                        @Options[index]
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
