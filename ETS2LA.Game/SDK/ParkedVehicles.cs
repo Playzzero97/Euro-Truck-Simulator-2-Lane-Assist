@@ -32,7 +32,7 @@ public class ParkedVehiclesProvider
     private ParkedVehicleData? _currentData;
 
     string mmapName = "Local\\ETS2LAParkedVehicles";
-    string mmapNameLinux = "/dev/shm/ETS2LAParkedVehicles";
+    string mmapNameLinux = OperatingSystem.IsMacOS() ? "/tmp/ETS2LAParkedVehicles" : "/dev/shm/ETS2LAParkedVehicles";
     int mmapSize = 1720;
 
     private MemoryMappedFile? _mmf;

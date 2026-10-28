@@ -137,7 +137,8 @@ public class GameTelemetry
             #if WINDOWS
                 mmf = MemoryMappedFile.OpenExisting(mmapName);
             # else
-                mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
+                mmf = OperatingSystem.IsMacOS() ? MacSharedMemory.Open("/SCSTelemetry", writable: false)
+                                                : MemoryMappedFile.CreateFromFile(mmapNameLinux);
             # endif
 
             accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);

@@ -136,9 +136,11 @@ public class OverlayHandler
 
     private void RenderLoop()
     {
-        if (overlaySettings.DisableOverlay)
+        // GLFW windows have to be created on the macOS main thread, which the Photino UI owns.
+        if (overlaySettings.DisableOverlay || OperatingSystem.IsMacOS())
         {
-            Logger.Error(_("Overlay is disabled in settings, skipping initialization."));
+            Logger.Error(OperatingSystem.IsMacOS() ? _("The overlay is not supported on macOS yet, skipping initialization.")
+                                                   : _("Overlay is disabled in settings, skipping initialization."));
             AR = new ARRenderer(null); // null renderer, won't actually do anything
             return;
         }
@@ -632,7 +634,7 @@ public class OverlayHandler
 
     public void RegisterWindow(WindowDefinition def, Action renderAction, Optional<Action> renderContextMenuAction = default)
     {
-        if (overlaySettings.DisableOverlay)
+        if (overlaySettings.DisableOverlay || OperatingSystem.IsMacOS())
         {
             Logger.Warn(_("Overlay is disabled in settings, skipping window registration for {0}.", def.Title));
             return;

@@ -89,7 +89,7 @@ public class GameHandler
             # else
                 gamePath,
                 "bin",
-                "linux_x64",
+                OperatingSystem.IsMacOS() ? "macOS" : "linux_x64",
                 type == GameType.EuroTruckSimulator2 ? "eurotrucks2"
                                                      : "amtrucks"
             # endif
@@ -123,7 +123,7 @@ public class GameHandler
                 gameName
             #else
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".local", "share", gameName
+                OperatingSystem.IsMacOS() ? "Library/Application Support" : ".local/share", gameName
             #endif
         );
 

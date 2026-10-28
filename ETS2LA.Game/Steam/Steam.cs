@@ -38,6 +38,8 @@ class SteamHandler
             string steamInstallFolder = Registry.GetValue(@"HKEY_CURRENT_USER\SOFTWARE\Valve\Steam", "SteamPath", null) as string ?? "C:\\Program Files (x86)\\Steam";
             return Path.Combine(steamInstallFolder, "steamapps", "libraryfolders.vdf");
         #else
+            if (OperatingSystem.IsMacOS())
+                return Path.Combine(Environment.GetEnvironmentVariable("HOME"), "Library", "Application Support", "Steam", "steamapps", "libraryfolders.vdf");
             string path = Path.Combine(Environment.GetEnvironmentVariable("HOME"), ".steam", "root", "steamapps", "libraryfolders.vdf");
             return path;
         #endif

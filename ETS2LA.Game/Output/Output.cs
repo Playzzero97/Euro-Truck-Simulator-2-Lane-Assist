@@ -30,7 +30,7 @@ public class GameOutput
     // system works the same as SteamInput for example.
 
     string legacyMapName = "Local\\SCSControls";
-    string legacyMapNameLinux = "/dev/shm/SCS/SCSControls";
+    string legacyMapNameLinux = OperatingSystem.IsMacOS() ? "/private/tmp/SCS/SCSControls" : "/dev/shm/SCS/SCSControls";
     int legacyMapSize = 0;
     Dictionary<string, int> legacyShmOffsets = new Dictionary<string, int>();
     MemoryMappedFile? legacyMmf = null;
@@ -87,9 +87,17 @@ public class GameOutput
                 modernMmf = MemoryMappedFile.OpenExisting(modernMapName);
             # else
                 legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameLinux);
-                modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
+                if (OperatingSystem.IsMacOS())
+                {
+                    // Modern output is optional on macOS: without the plugin's shared memory,
+                    // write to a dummy buffer and steer through the legacy controller instead.
+                    try { modernMmf = MacSharedMemory.Open("/ETS2LAPluginInput", writable: true); }
+                    catch { modernMmf = MemoryMappedFile.CreateNew(null, modernMapSize); }
+                }
+                else
+                    modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
             # endif
-            legacyAccessor = legacyMmf.CreateViewAccessor(0, legacyMapSize, MemoryMappedFileAccess.Write);
+            legacyAccessor = legacyMmf.CreateViewAccessor(0, OperatingSystem.IsMacOS() ? 0 : legacyMapSize, MemoryMappedFileAccess.Write);
             modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);
         } 
         catch
@@ -295,6 +303,8 @@ public class GameOutput
                     WriteFloat(modernAccessor, 0, weightedValue);
                     WriteBool(modernAccessor, 4, weightedValue != 0.0f);
                     WriteDouble(modernAccessor, 5, time);
+                    if (OperatingSystem.IsMacOS())
+                        WriteFloat(legacyAccessor, legacyShmOffsets[propName], weightedValue);
                 }
                 else if (propName == "acceleration")
                 {

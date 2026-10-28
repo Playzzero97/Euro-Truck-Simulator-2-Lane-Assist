@@ -100,7 +100,7 @@ public class SemaphoreProvider
 
 
     string mmapName = "Local\\ETS2LASemaphore";
-    string mmapNameLinux = "/dev/shm/ETS2LASemaphore";
+    string mmapNameLinux = OperatingSystem.IsMacOS() ? "/tmp/ETS2LASemaphore" : "/dev/shm/ETS2LASemaphore";
     int mmapSize = 1920;
 
     private MemoryMappedFile? _mmf;
