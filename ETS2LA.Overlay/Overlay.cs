@@ -97,6 +97,7 @@ public class OverlayHandler
         overlaySettings = OverlaySettingsHandler.Current.GetSettings();
         OverlaySettingsHandler.Current.OnSettingsUpdated += OnOverlaySettingsUpdated;
 
+        if (OperatingSystem.IsMacOS()) MacOverlay.UseImGuiGLFW();
         Task.Factory.StartNew(RenderLoop, TaskCreationOptions.LongRunning);
         
         windows.Add(new ConsoleWindow());
@@ -136,11 +137,9 @@ public class OverlayHandler
 
     private void RenderLoop()
     {
-        // GLFW windows have to be created on the macOS main thread, which the Photino UI owns.
-        if (overlaySettings.DisableOverlay || OperatingSystem.IsMacOS())
+        if (overlaySettings.DisableOverlay)
         {
-            Logger.Error(OperatingSystem.IsMacOS() ? _("The overlay is not supported on macOS yet, skipping initialization.")
-                                                   : _("Overlay is disabled in settings, skipping initialization."));
+            Logger.Error(_("Overlay is disabled in settings, skipping initialization."));
             AR = new ARRenderer(null); // null renderer, won't actually do anything
             return;
         }
@@ -187,6 +186,8 @@ public class OverlayHandler
             
             next += interval;
 
+            if (OperatingSystem.IsMacOS()) MacOverlay.HoldMainThread();
+
             if (!isInteracting) { 
                 // This has to be called each frame to properly update the flags.
                 // For whatever reason they are set back to default. Shouldn't affect
@@ -205,12 +206,13 @@ public class OverlayHandler
                 # endif
             }
 
-            GLFW.PollEvents();
+            if (!OperatingSystem.IsMacOS()) GLFW.PollEvents(); // macOS: Photino's main loop handles the events
 
             // Skip rendering if we're minimized, though this should actually
             // never happen for the overlay.
             if (GLFW.GetWindowAttrib(glfwWindow, GLFW.GLFW_ICONIFIED) != 0)
             {
+                if (OperatingSystem.IsMacOS()) MacOverlay.ReleaseMainThread();
                 ImGuiImplGLFW.Sleep(10);
                 continue;
             }
@@ -273,6 +275,7 @@ public class OverlayHandler
 
             GLFW.SwapInterval(0); // disable vsync
             GLFW.SwapBuffers(glfwWindow);
+            if (OperatingSystem.IsMacOS()) MacOverlay.ReleaseMainThread();
 
             double remaining = next - fs.Elapsed.TotalMilliseconds;
             if (remaining > 1.0)
@@ -569,6 +572,9 @@ public class OverlayHandler
 
     private bool InitGLFW()
     {
+        if (OperatingSystem.IsMacOS() && !MacOverlay.IsMainThread)
+            return MacOverlay.InitOnMainThread(InitGLFW);
+
         unsafe
         {
             GLFW.SetErrorCallback((error, description) =>
@@ -603,6 +609,13 @@ public class OverlayHandler
             GLFW.WindowHint(GLFW.GLFW_CONTEXT_CREATION_API, GLFW.GLFW_EGL_CONTEXT_API);
         # endif
 
+        if (OperatingSystem.IsMacOS())
+        {
+            GLFW.WindowHint(GLFW.GLFW_CONTEXT_CREATION_API, GLFW.GLFW_NATIVE_CONTEXT_API); // macOS has no EGL
+            GLFW.WindowHint(GLFW.GLFW_OPENGL_FORWARD_COMPAT, 1);                          // needed for 3.2 core on macOS
+            GLFW.WindowHint(GLFW.GLFW_COCOA_RETINA_FRAMEBUFFER, 0);                       // pixels = points, like OverlayWidth/Height
+        }
+
         GLFW.WindowHint(GLFW.GLFW_TRANSPARENT_FRAMEBUFFER, 1);  // Transparent
         GLFW.WindowHint(GLFW.GLFW_DECORATED, 0);                // No window decorations
         GLFW.WindowHint(GLFW.GLFW_FLOATING, 1);                 // Always on top
@@ -629,12 +642,15 @@ public class OverlayHandler
         GLFW.SetWindowPos(glfwWindow, 1, 1);
         # endif
 
+        if (OperatingSystem.IsMacOS())
+            unsafe { MacOverlay.FloatAboveGame((nint)GLFW.GetCocoaWindow(glfwWindow)); }
+
         return true;
     }
 
     public void RegisterWindow(WindowDefinition def, Action renderAction, Optional<Action> renderContextMenuAction = default)
     {
-        if (overlaySettings.DisableOverlay || OperatingSystem.IsMacOS())
+        if (overlaySettings.DisableOverlay)
         {
             Logger.Warn(_("Overlay is disabled in settings, skipping window registration for {0}.", def.Title));
             return;

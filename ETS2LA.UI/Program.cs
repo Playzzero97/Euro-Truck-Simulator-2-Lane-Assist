@@ -59,6 +59,9 @@ public class UserInterface
         app.MainWindow.Center();
         app.MainWindow.SetTopMost(WindowSettings.Current.StayOnTop);
 
+        // macOS: the overlay's window would otherwise keep the app running after this one closes.
+        if (OperatingSystem.IsMacOS()) app.MainWindow.WindowClosing += (_, _) => { Environment.Exit(0); return false; };
+
         Current.Window = app.MainWindow;
         Current.Window.WindowSizeChanged += (sender, e) => {
             WindowSettings.Current.Width = e.Width;
