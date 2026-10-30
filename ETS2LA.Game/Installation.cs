@@ -120,6 +120,13 @@ public class Installation
                 continue;
             scsFiles.Add(file);
         }
+
+        // macOS keeps the game's .scs archives inside the app bundle (<game>.app/Contents/Resources).
+        if (OperatingSystem.IsMacOS())
+            foreach (string resources in Directory.GetDirectories(Path, "*.app").Select(app => System.IO.Path.Combine(app, "Contents", "Resources")).Where(Directory.Exists))
+                foreach (string file in Directory.GetFiles(resources, "*.scs"))
+                    if (!FileExclusions.Contains(System.IO.Path.GetFileName(file)))
+                        scsFiles.Add(file);
     }
 
     private string GetMapFilepath()
