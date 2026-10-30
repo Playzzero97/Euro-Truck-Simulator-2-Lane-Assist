@@ -30,7 +30,7 @@ public class GameOutput
     // system works the same as SteamInput for example.
 
     string legacyMapName = "Local\\SCSControls";
-    string legacyMapNameLinux = OperatingSystem.IsMacOS() ? "/private/tmp/SCS/SCSControls" : "/dev/shm/SCS/SCSControls";
+    string legacyMapNameLinux = OperatingSystem.IsMacOS() ? "/private/tmp/SCS/SCSControls" : "SCS/SCSControls";
     int legacyMapSize = 0;
     Dictionary<string, int> legacyShmOffsets = new Dictionary<string, int>();
     MemoryMappedFile? legacyMmf = null;
@@ -41,7 +41,7 @@ public class GameOutput
     // of controls as the legacy system does.
 
     string modernMapName = "Local\\ETS2LAPluginInput";
-    string modernMapNameLinux = "/dev/shm/ETS2LAPluginInput";
+    string modernMapNameLinux = OperatingSystem.IsMacOS() ? "/tmp/ETS2LAPluginInput" : "ETS2LAPluginInput";
     int modernMapSize = 26;
     MemoryMappedFile? modernMmf = null;
     MemoryMappedViewAccessor? modernAccessor = null;
@@ -87,15 +87,7 @@ public class GameOutput
                 modernMmf = MemoryMappedFile.OpenExisting(modernMapName);
             # else
                 legacyMmf = MemoryMappedFile.CreateFromFile(legacyMapNameLinux);
-                if (OperatingSystem.IsMacOS())
-                {
-                    // Modern output is optional on macOS: without the plugin's shared memory,
-                    // write to a dummy buffer and steer through the legacy controller instead.
-                    try { modernMmf = MacSharedMemory.Open("/ETS2LAPluginInput", writable: true); }
-                    catch { modernMmf = MemoryMappedFile.CreateNew(null, modernMapSize); }
-                }
-                else
-                    modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
+                modernMmf = MemoryMappedFile.CreateFromFile(modernMapNameLinux);
             # endif
             legacyAccessor = legacyMmf.CreateViewAccessor(0, OperatingSystem.IsMacOS() ? 0 : legacyMapSize, MemoryMappedFileAccess.Write);
             modernAccessor = modernMmf.CreateViewAccessor(0, modernMapSize, MemoryMappedFileAccess.ReadWrite);

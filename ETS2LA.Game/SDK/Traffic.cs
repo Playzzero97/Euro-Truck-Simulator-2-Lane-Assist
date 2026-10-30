@@ -83,7 +83,7 @@ public class TrafficProvider
 
 
     string mmapName = "Local\\ETS2LATraffic";
-    string mmapNameLinux = OperatingSystem.IsMacOS() ? "/tmp/ETS2LATraffic" : "/dev/shm/ETS2LATraffic";
+    string mmapNameLinux = "/tmp/ETS2LATraffic";
     int mmapSize = 6800;
 
     private MemoryMappedFile? _mmf;

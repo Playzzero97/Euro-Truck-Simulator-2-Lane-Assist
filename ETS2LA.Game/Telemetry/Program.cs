@@ -25,7 +25,7 @@ public class GameTelemetry
     private float UpdateRate { get; set; } = 1f / 60f;
 
     public string EventString = "ETS2LA.Telemetry.Data";
-    
+
     private MemoryReader reader;
     private GameTelemetryData? currentData = new();
     private bool shutdown = false;
@@ -33,7 +33,9 @@ public class GameTelemetry
     public bool ReadTrailerData { get; set; } = false;
 
     string mmapName = "Local\\SCSTelemetry";
-    string mmapNameLinux = "/dev/shm/SCSTelemetry";
+    string mmapNameLinux = "SCSTelemetry";
+
+    private MacSharedMemory? macMemory;
 
     int mmapSize = 32 * 1024;
     int stringSize = 64;
@@ -42,7 +44,7 @@ public class GameTelemetry
     private MemoryMappedViewAccessor? accessor;
     private byte[] buffer = Array.Empty<byte>();
     private readonly Stopwatch sinceReconnect = Stopwatch.StartNew();
-    
+
     Dictionary<int, string> intToDays = new Dictionary<int, string>
     {
         { 0, "Monday" },
@@ -78,7 +80,7 @@ public class GameTelemetry
             2 => "ATS",
             _ => "unknown"
         };
-    
+
         return gameName;
     }
 
@@ -98,7 +100,7 @@ public class GameTelemetry
     {
         if (currentData == null)
             currentData = new();
-        
+
         return currentData;
     }
 
@@ -129,24 +131,33 @@ public class GameTelemetry
 
     private bool TryOpenMemory()
     {
-        if (accessor != null)
+        if (accessor != null || macMemory != null)
             return true;
 
         try
         {
-            #if WINDOWS
-                mmf = MemoryMappedFile.OpenExisting(mmapName);
-            # else
-                mmf = OperatingSystem.IsMacOS() ? MacSharedMemory.Open("/SCSTelemetry", writable: false)
-                                                : MemoryMappedFile.CreateFromFile(mmapNameLinux);
-            # endif
+#if WINDOWS
+        mmf = MemoryMappedFile.OpenExisting(mmapName);
+        accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+#else
+            if (OperatingSystem.IsMacOS())
+            {
+                macMemory = MacSharedMemory.Open("/SCSTelemetry", mmapSize);
+            }
+            else
+            {
+                mmf = MemoryMappedFile.CreateFromFile(mmapNameLinux);
+                accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
+            }
+#endif
 
-            accessor = mmf.CreateViewAccessor(0, mmapSize, MemoryMappedFileAccess.Read);
             return true;
         }
-        catch (FileNotFoundException)
+        catch (FileNotFoundException ex)
         {
+            Logger.Error(ex.ToString(), _("Telemetry shared memory was not found."));
             CloseMemory();
+
             NotificationHandler.Current.SendNotification(new Notification
             {
                 Id = "GameTelemetry.MMFNotFound",
@@ -154,32 +165,28 @@ public class GameTelemetry
                 Content = _("Couldn't connect to the game. Please open ETS2 or ATS and enable the SDK."),
                 IsProgressIndeterminate = true,
                 Actions = new List<NotificationAction>
+            {
+                new NotificationAction
                 {
-                    new NotificationAction
-                    {
-                        Label = _("Open SDK Settings"),
-                        IsPrimary = true,
-                        Action = () =>
-                        {
-                            Events.Current.Publish("ETS2LA.UI.Navigate", "/settings/sdk");
-                        }
-                    },
-                    new NotificationAction
-                    {
-                        Label = _("Start Game"),
-                        IsPrimary = false,
-                        Action = () => 
-                        {
-                            Events.Current.Publish("ETS2LA.UI.Navigate", "/start");
-                        }
-                    }
+                    Label = _("Open SDK Settings"),
+                    IsPrimary = true,
+                    Action = () => Events.Current.Publish("ETS2LA.UI.Navigate", "/settings/sdk")
+                },
+                new NotificationAction
+                {
+                    Label = _("Start Game"),
+                    IsPrimary = false,
+                    Action = () => Events.Current.Publish("ETS2LA.UI.Navigate", "/start")
                 }
+            }
             });
+
             Thread.Sleep(1000);
             return false;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Logger.Error(ex.ToString(), _("Failed to open telemetry shared memory."));
             CloseMemory();
             Thread.Sleep(1000);
             return false;
@@ -190,8 +197,12 @@ public class GameTelemetry
     {
         accessor?.Dispose();
         accessor = null;
+
         mmf?.Dispose();
         mmf = null;
+
+        macMemory?.Dispose();
+        macMemory = null;
     }
 
     private void ReadTrailer(int offset, byte[] data, int count, GameTelemetryData telemetryData)
@@ -199,7 +210,7 @@ public class GameTelemetry
         for (int i = 0; i < count; i++)
         {
             var trailer = telemetryData.trailers[i];
-            
+
             // ConBool
             reader.ReadBool(offset, trailer.conBool.wheelSteerable.AsSpan(0, 16)); offset += 16 * 1;
             reader.ReadBool(offset, trailer.conBool.wheelSimulated.AsSpan(0, 16)); offset += 16 * 1;
@@ -261,7 +272,7 @@ public class GameTelemetry
                     reader.ReadFloat(offset + 64 + j * 4),
                     reader.ReadFloat(offset + 128 + j * 4)
                 );
-            } 
+            }
             offset += 3 * 16 * 4;
             offset += 4; // Padding
 
@@ -304,7 +315,10 @@ public class GameTelemetry
 
         try
         {
-            accessor!.ReadArray(0, buffer, 0, mmapSize);
+            if (OperatingSystem.IsMacOS())
+                macMemory!.Read(buffer);
+            else
+                accessor!.ReadArray(0, buffer, 0, mmapSize);
         }
         catch (Exception)
         {

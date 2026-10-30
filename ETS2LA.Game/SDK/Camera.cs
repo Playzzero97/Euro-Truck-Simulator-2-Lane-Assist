@@ -51,7 +51,7 @@ public class CameraProvider
     private CameraData? _currentData = new();
 
     string mmapName = "Local\\ETS2LACameraProps";
-    string mmapNameLinux = OperatingSystem.IsMacOS() ? "/tmp/ETS2LACameraProps" : "/dev/shm/ETS2LACameraProps";
+    string mmapNameLinux = "/tmp/ETS2LACameraProps";
     int mmapSize = 128;
 
     private MemoryMappedFile? _mmf;

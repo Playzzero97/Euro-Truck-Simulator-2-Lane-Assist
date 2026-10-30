@@ -39,7 +39,7 @@ public class Installation
 
     public bool IsParsed { get; set; } = false;
     public bool IsParsing { get; set; } = false;
-    
+
     public List<string> FileExclusions = new List<string>
     {
         "dlc_winter.scs",
@@ -65,9 +65,19 @@ public class Installation
 
     public List<string> GetLogFileContents()
     {
-        var logFileLocation = System.IO.Path.Combine(DocumentsPath, "game.log.txt");
+       var logFileLocation = OperatingSystem.IsMacOS()
+    ? System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        "Library", "Application Support",
+        Type == GameType.EuroTruckSimulator2
+            ? "Euro Truck Simulator 2"
+            : "American Truck Simulator",
+        "game.log.txt")
+    : System.IO.Path.Combine(DocumentsPath, "game.log.txt");
+    
         if (!File.Exists(logFileLocation))
             return new List<string>();
+
 
         try
         {
@@ -91,7 +101,7 @@ public class Installation
 
     public int GetPriority(string modName)
     {
-        if(modName.StartsWith("promods"))
+        if (modName.StartsWith("promods"))
         {
             if (modName.Contains("def"))
                 return 1;
@@ -101,7 +111,7 @@ public class Installation
                 return 3;
             return 4; // media and models
         }
-        if(modName.StartsWith("eaa"))
+        if (modName.StartsWith("eaa"))
         {
             if (modName.Contains("semeuropa"))
                 return 5;
@@ -112,22 +122,26 @@ public class Installation
         return 100;
     }
 
-    private void GetBaseContent(List<string> scsFiles)
-    {
-        foreach (string file in Directory.GetFiles(Path, "*.scs"))
-        {
-            if (FileExclusions.Contains(System.IO.Path.GetFileName(file)))
-                continue;
-            scsFiles.Add(file);
-        }
+   private void GetBaseContent(List<string> scsFiles)
+{
+    Logger.Info($"Discovering base content in '{Path}'");
 
-        // macOS keeps the game's .scs archives inside the app bundle (<game>.app/Contents/Resources).
-        if (OperatingSystem.IsMacOS())
-            foreach (string resources in Directory.GetDirectories(Path, "*.app").Select(app => System.IO.Path.Combine(app, "Contents", "Resources")).Where(Directory.Exists))
-                foreach (string file in Directory.GetFiles(resources, "*.scs"))
-                    if (!FileExclusions.Contains(System.IO.Path.GetFileName(file)))
-                        scsFiles.Add(file);
+    if (!Directory.Exists(Path))
+    {
+        Logger.Error($"Game directory does not exist: '{Path}'");
+        return;
     }
+
+    foreach (string file in Directory.GetFiles(Path, "*.scs"))
+    {
+        if (FileExclusions.Contains(System.IO.Path.GetFileName(file)))
+            continue;
+
+        scsFiles.Add(file);
+    }
+
+    Logger.Info($"Found {scsFiles.Count} base archives.");
+}
 
     private string GetMapFilepath()
     {
@@ -169,7 +183,7 @@ public class Installation
     private bool ParseActual()
     {
         var logs = GetLogFileContents();
-        if(!DataSettings.Current.ForceMapLoad && !DataUtils.IsRunningBasedOnLogs(logs))
+        if (!DataSettings.Current.ForceMapLoad && !DataUtils.IsRunningBasedOnLogs(logs))
         {
             Logger.Warn(_("Installation at '{0}' is not currently running, waiting for load of profile.", Path));
             return false;
@@ -196,6 +210,12 @@ public class Installation
                     CloseAfter = 10
                 });
             }
+        }
+
+         if (hashFsReaders.Count == 0)
+        {
+            Logger.Error("No valid SCS archives could be loaded.");
+            return false;
         }
 
         int modCount = modFiles.Count;
@@ -225,10 +245,10 @@ public class Installation
         // the base .scs data.
         hashFsReaders.Reverse();
         assetLoader = new AssetLoader(hashFsReaders.ToArray());
-        
+
         map = new MapData();
         var filepath = GetMapFilepath();
-        
+
         Logger.Info(_("Loading map data from '{0}'", filepath));
         try { map.Read(filepath, assetLoader); }
         catch (Exception ex)
@@ -275,7 +295,7 @@ public class Installation
             IsProgressIndeterminate = true,
             CloseAfter = 0
         });
-        
+
         var success = ParseActual();
 
         if (map == null || assetLoader == null || !success)
@@ -302,13 +322,13 @@ public class Installation
 
         Logger.Success(_("Finished parsing installation at '{0}'", Path));
 
-                     // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
+        // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
         var foundText = _n("Found {0} prefab", "Found {0} prefabs", prefabs, prefabs) + ", "
-                     // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
-                      + _n("found {0} road", "found {0} roads", roads, roads) + ", " 
-                     // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
+                      // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
+                      + _n("found {0} road", "found {0} roads", roads, roads) + ", "
+                      // TRANSLATORS: Part of a three part message: "Found {0} prefabs, found {0} roads, found {0} nodes."
                       + _n("found {0} node", "found {0} nodes", nodes, nodes) + ".";
-        
+
         Logger.Success(foundText);
 
         IsParsed = true;
@@ -354,17 +374,19 @@ public class Installation
     public bool IsSDKInstalled(string version)
     {
         string sdkPath;
-        # if WINDOWS
+#if WINDOWS
             if (Type == GameType.EuroTruckSimulator2)
                 sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins", "ets2la_" + version);
             else
                 sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins", "ets2la_" + version);
-        # else
-            if (Type == GameType.EuroTruckSimulator2)
-                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins", "ets2la_" + version);
-            else                
-                sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins", "ets2la_" + version);
-        # endif
+    #elif MACOS
+    sdkPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "MacOS");
+#else
+        if (Type == GameType.EuroTruckSimulator2)
+            sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins", "ets2la_" + version);
+        else
+            sdkPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins", "ets2la_" + version);
+#endif
 
         if (File.Exists(sdkPath))
             return true;
@@ -375,24 +397,24 @@ public class Installation
     public bool InstallSDK(string version)
     {
         string SDKSourcePath;
-        # if WINDOWS
+#if WINDOWS
             SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Windows");
-        # else
-            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
-        # endif
+#else
+        SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
+#endif
 
         string SDKDestinationPath;
-        # if WINDOWS
+#if WINDOWS
             if (Type == GameType.EuroTruckSimulator2)
                 SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins");
             else
                 SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins");
-        # else
-            if (Type == GameType.EuroTruckSimulator2)
-                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
-            else                
-                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
-        # endif
+#else
+        if (Type == GameType.EuroTruckSimulator2)
+            SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
+        else
+            SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
+#endif
 
         try
         {
@@ -435,24 +457,24 @@ public class Installation
     public bool UninstallSDK(string version)
     {
         string SDKSourcePath;
-        # if WINDOWS
+#if WINDOWS
             SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Windows");
-        # else
-            SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
-        # endif
+#else
+        SDKSourcePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SDKs", version, "Linux");
+#endif
 
         string SDKDestinationPath;
-        # if WINDOWS
+#if WINDOWS
             if (Type == GameType.EuroTruckSimulator2)
                 SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2.exe", ""), "plugins");
             else
                 SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks.exe", ""), "plugins");
-        # else
-            if (Type == GameType.EuroTruckSimulator2)
-                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
-            else                
-                SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
-        # endif
+#else
+        if (Type == GameType.EuroTruckSimulator2)
+            SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("eurotrucks2", ""), "plugins");
+        else
+            SDKDestinationPath = System.IO.Path.Combine(ExecutablePath.Replace("amtrucks", ""), "plugins");
+#endif
 
         try
         {

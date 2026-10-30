@@ -26,8 +26,12 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(OS)' == 'Unix'">
-    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
-  </PropertyGroup>
+  <PropertyGroup Condition="$([System.OperatingSystem]::IsLinux())">
+  <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+</PropertyGroup>
+
+  <PropertyGroup Condition="$([System.OperatingSystem]::IsMacOS())">
+  <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
+</PropertyGroup>
   
 </Project>
